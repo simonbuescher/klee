@@ -6,6 +6,7 @@ Output/
 
 # commonly used as cmake build directory
 /build
+/cmake-build-debug
 
 cscope.*
 *~
@@ -30,3 +31,10 @@ lit.site.cfg
 autoconf/aclocal.m4
 autoconf/autom4te.cache/
 autom4te.cache/
+
+
+# IntelliJ
+/.idea
+
+# test-out
+/test-out
