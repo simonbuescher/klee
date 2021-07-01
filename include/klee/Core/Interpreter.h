@@ -14,6 +14,8 @@
 #include <set>
 #include <string>
 #include <vector>
+#include "../../../lib/Core/ExecutionState.h"
+
 
 struct KTest;
 
@@ -70,9 +72,9 @@ public:
 
   enum LogType
   {
-	  STP, //.CVC (STP's native language)
-	  KQUERY, //.KQUERY files (kQuery native language)
-	  SMTLIB2 //.SMT2 files (SMTLIB version 2 files)
+    STP, //.CVC (STP's native language)
+    KQUERY, //.KQUERY files (kQuery native language)
+    SMTLIB2 //.SMT2 files (SMTLIB version 2 files)
   };
 
   /// InterpreterOptions - Options varying the runtime behavior during
@@ -84,7 +86,7 @@ public:
     unsigned MakeConcreteSymbolic;
 
     InterpreterOptions()
-      : MakeConcreteSymbolic(false)
+        : MakeConcreteSymbolic(false)
     {}
   };
 
@@ -92,7 +94,7 @@ protected:
   const InterpreterOptions interpreterOpts;
 
   Interpreter(const InterpreterOptions &_interpreterOpts)
-    : interpreterOpts(_interpreterOpts)
+      : interpreterOpts(_interpreterOpts)
   {}
 
 public:
@@ -137,6 +139,8 @@ public:
                                  char **argv,
                                  char **envp) = 0;
 
+  virtual void runFunctionAsSymbolic(llvm::Function *f) = 0;
+
   /*** Runtime options ***/
 
   virtual void setHaltExecution(bool value) = 0;
@@ -157,12 +161,14 @@ public:
 
   virtual bool getSymbolicSolution(const ExecutionState &state,
                                    std::vector<
-                                   std::pair<std::string,
-                                   std::vector<unsigned char> > >
+                                       std::pair<std::string,
+                                           std::vector<unsigned char> > >
                                    &res) = 0;
 
   virtual void getCoveredLines(const ExecutionState &state,
                                std::map<const std::string*, std::set<unsigned> > &res) = 0;
+
+  virtual void getReturnValues(const ExecutionState &state, std::vector<ref<Expr>> &res) = 0;
 };
 
 } // End klee namespace
