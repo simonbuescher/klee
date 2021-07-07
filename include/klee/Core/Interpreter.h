@@ -14,7 +14,9 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <llvm/IR/BasicBlock.h>
 #include "../../../lib/Core/ExecutionState.h"
+#include "../../../lib/Core/Path.h"
 
 
 struct KTest;
@@ -48,6 +50,8 @@ public:
   virtual void processTestCase(const ExecutionState &state,
                                const char *err,
                                const char *suffix) = 0;
+
+  virtual void processPathExecution(Path &path) = 0;
 };
 
 class Interpreter {

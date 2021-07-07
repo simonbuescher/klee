@@ -26,12 +26,17 @@ private:
     std::uint32_t pathsCompleted;
     std::uint32_t pathsExplored;
 
+    std::map<llvm::BasicBlock *, std::string> blockNames;
+    unsigned int lastBlockName;
+
 public:
     MyKleeHandler() {
         infoStream = openOutputFile("info");
 
         pathsCompleted = 0;
         pathsExplored = 0;
+
+        lastBlockName = 0;
     }
 
     ~MyKleeHandler() override { infoStream->close(); }
@@ -69,33 +74,45 @@ public:
 
     void processTestCase(const klee::ExecutionState &state, const char *err,
                          const char *suffix) override {
-        std::cout << "MyKleeHandler.processTestCase called !!!" << std::endl;
+        std::cout << "MyKleeHandler.processTestCase called, this should not happen in symbolic execution" << std::endl;
+    }
 
-        std::cout << "terminated state: " << std::endl;
+    void processPathExecution(klee::Path &path) override {
+        std::cout << "Path finished:" << std::endl;
+
+        std::string pathString;
+        for (auto block : path) {
+            if (blockNames.find(block) == blockNames.end()) {
+                std::string blockNumber = "block %" + std::to_string(++lastBlockName);
+                blockNames[block] = block->hasName() ? block->getName().str() : blockNumber;
+            }
+            pathString.append(blockNames[block]);
+            pathString.append(" -> ");
+        }
+        pathString.append(path.shouldExecuteFinishBlock() ? "execute last" : "dont execute last");
+        std::cout << "path: " << pathString << std::endl;
+
         std::cout << "constraints: " << std::endl;
-
-        for (klee::ref<klee::Expr> constraint : state.constraints) {
+        for (klee::ref<klee::Expr> constraint : path.getConstraints()) {
             llvm::SmallString<1024> constraintString;
             llvm::raw_svector_ostream constraintStream(constraintString);
             constraint->print(constraintStream);
 
-            std::cout << constraintString.c_str() << std::endl;
+            std::cout << "- " << constraintString.c_str() << std::endl;
         }
 
         std::cout << "expressions: " << std::endl;
-
-        std::vector<klee::ref<klee::Expr>> expressions;
-        interpreter->getReturnValues(state, expressions);
-        for (klee::ref<klee::Expr> expression : expressions) {
+        for (std::pair<std::string, klee::ref<klee::Expr>> symbolicValue : path.getSymbolicValues()) {
             llvm::SmallString<1024> expressionString;
             llvm::raw_svector_ostream expressionStream(expressionString);
-            expression->print(expressionStream);
+            symbolicValue.second->print(expressionStream);
 
-            std::cout << expressionString.c_str() << std::endl;
+            std::cout << "- " << symbolicValue.first << ": " << expressionString.c_str() << std::endl;
         }
 
         std::cout << std::endl << std::endl;
     }
+
 };
 
 void cleanOutputDir() {
@@ -127,9 +144,11 @@ void loadModules(const std::string &inputFile, llvm::LLVMContext &ctx,
     loadedModules.emplace_back(std::move(module));
 }
 
-int main() {
-    std::string inputFile = INPUT_DIR + "loop_free.bc";
-    std::string functionName = "simple_fib";
+int main(int argc, char** argv) {
+    assert(argc == 3 && "wrong arguments");
+
+    std::string inputFile = INPUT_DIR + argv[1];
+    std::string functionName = argv[2];
 
     cleanOutputDir();
 
