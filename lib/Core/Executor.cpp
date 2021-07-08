@@ -4482,14 +4482,14 @@ void Executor::runFunctionAsSymbolic(Function *f) {
             }
 
             llvm::BasicBlock *block = *blockInPathIt;
+            // todo sbuescher what if path start is phi block?
             transferToBasicBlock(block, nullptr, *state);
 
-            //int pc = kFunction->basicBlockEntry[block];
             for (llvm::Instruction &instruction : *block) {
                 KInstruction *ki = state->pc;
                 stepInstruction(*state);
 
-                // todo other block terminators
+                // todo sbuescher other block terminators
                 switch (instruction.getOpcode()) {
                     case Instruction::Alloca:
                         break;
@@ -4500,23 +4500,13 @@ void Executor::runFunctionAsSymbolic(Function *f) {
 
                         if (!branchInstruction.isUnconditional()) {
                             ref<Expr> condition = eval(ki, 0, *state).value;
-
                             condition = optimizer.optimizeExpr(condition, false);
 
-                            ExecutionState *falseState = state->branch();
-
-                            addedStates.push_back(falseState);
-                            processTree->attach(state->ptreeNode, falseState, state);
-
-                            state->constraints.push_back(condition);
-                            falseState->constraints.push_back(Expr::createIsZero(condition));
-
-
                             if (branchInstruction.getSuccessor(0) == successorInPath) {
-                                // useless
+                                state->constraints.push_back(condition);
                             }
                             if (branchInstruction.getSuccessor(1) == successorInPath) {
-                                state = falseState;
+                                state->constraints.push_back(Expr::createIsZero(condition));
                             }
                         }
 
@@ -4524,6 +4514,7 @@ void Executor::runFunctionAsSymbolic(Function *f) {
 
                         break;
                     }
+                    case Instruction::Invoke:
                     case Instruction::Call: {
                         assert(false && "calls are currently not supported");
                         break;
@@ -4532,7 +4523,6 @@ void Executor::runFunctionAsSymbolic(Function *f) {
                         // no return needed as we just run our own function
                         break;
                     case Instruction::Switch: {
-                        // todo test this
                         SwitchInst *switchInstruction = cast<SwitchInst>(&instruction);
 
                         BasicBlock *successorInPath = *(blockInPathIt + 1);
@@ -4583,6 +4573,9 @@ void Executor::runFunctionAsSymbolic(Function *f) {
 
                         break;
                     }
+                    case Instruction::Unreachable:
+                        assert(false && "unreachable instruction reached");
+                        break;
                     default:
                         executeInstruction(*state, ki);
                         break;
@@ -4639,8 +4632,13 @@ void Executor::createArguments(Function *f, KFunction *kFunction, ExecutionState
     for (Function::arg_iterator argument = f->arg_begin(), ae = f->arg_end();
          argument != ae; argument++, currentArgumentNumber++) {
         // creating symbolic arguments
-        // todo only int arguments currently
-        MemoryObject *memoryObject = memory->allocate(Expr::Int32, false, false, firstInstruction, 4);
+
+        // todo sbuescher support array arguments?? which size
+        unsigned argumentSizeBytes = kmodule->targetData->getTypeAllocSize(argument->getType());
+        unsigned argumentSizeBits = kmodule->targetData->getTypeAllocSizeInBits(argument->getType());
+        ref<ConstantExpr> size = ConstantExpr::createPointer(argumentSizeBytes);
+
+        MemoryObject *memoryObject = memory->allocate(size->getZExtValue(), false, false, firstInstruction, 4);
         memoryObject->setName(argument->getName());
 
         executeMakeSymbolic(*state, memoryObject, argument->getName());
@@ -4651,7 +4649,7 @@ void Executor::createArguments(Function *f, KFunction *kFunction, ExecutionState
         state->addressSpace.resolveOne(*state, solver, memoryObject->getBaseExpr(), objectPair, success);
 
         ref<Expr> offset = memoryObject->getOffsetExpr(memoryObject->getBaseExpr());
-        ref<Expr> result = objectPair.second->read(offset, Expr::Int32);
+        ref<Expr> result = objectPair.second->read(offset, argumentSizeBits);
 
         // bind argument to function
         bindArgument(kFunction, currentArgumentNumber, *state, result);
