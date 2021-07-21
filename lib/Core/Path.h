@@ -42,6 +42,8 @@ namespace klee {
 
         std::map<std::string, ref<Expr>> getSymbolicValues();
 
+        std::string getPathRepr();
+
         llvm::BasicBlock *front();
 
         llvm::BasicBlock *back();

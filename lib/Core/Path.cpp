@@ -63,6 +63,10 @@ namespace klee {
         return symbolicValues;
     }
 
+    std::string Path::getPathRepr() {
+        return repr;
+    }
+
     llvm::BasicBlock *Path::front() {
         return blocks.front();
     }
