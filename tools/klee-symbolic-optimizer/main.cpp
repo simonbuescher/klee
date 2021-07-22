@@ -12,6 +12,7 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/IR/LLVMContext.h>
 #include <iomanip>
+#include <fstream>
 
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/Module.h"
@@ -21,6 +22,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include "nlohmann/json.hpp"
+#include "JsonPrinter.h"
 
 
 std::string OUT_DIR = "./test-out/";
@@ -34,7 +36,7 @@ private:
     klee::Interpreter *interpreter;
     llvm::Function *function;
 
-    nlohmann::json pathOutput;
+    JsonPrinter *jsonPrinter;
 
     std::unique_ptr<llvm::raw_fd_ostream> infoStream;
 
@@ -44,8 +46,8 @@ private:
     int pathNum = 0;
 
 public:
-    MyKleeHandler() {
-        pathOutput = {};
+    MyKleeHandler(JsonPrinter *printer) {
+        jsonPrinter = printer;
 
         infoStream = openOutputFile("info");
 
@@ -99,51 +101,7 @@ public:
         std::cout << "PATH FINISHED: [" << path.getPathRepr() << "] ["
                   << (path.shouldExecuteFinishBlock() ? "execute last" : "dont execute last") << "]" << std::endl;
 
-        std::cout << "### CONDITION: ###" << std::endl;
-
-        klee::ConstraintSet constraints = path.getConstraints();
-        auto condition = *constraints.begin();
-        for (auto constraintIt = constraints.begin() + 1; constraintIt != constraints.end(); constraintIt++) {
-            condition = klee::AndExpr::create(condition, *constraintIt);
-        }
-
-        llvm::SmallString<1024> conditionString;
-        llvm::raw_svector_ostream conditionStream(conditionString);
-        condition->print(conditionStream);
-
-        std::cout << "- " << conditionString.c_str() << std::endl;
-
-        std::cout << "### EXPRESSIONS: ###" << std::endl;
-
-        std::map<std::string, std::string> assignments;
-        for (std::pair<std::string, klee::ref<klee::Expr>> symbolicValue : path.getSymbolicValues()) {
-            llvm::SmallString<1024> expressionString;
-            llvm::raw_svector_ostream expressionStream(expressionString);
-            symbolicValue.second->print(expressionStream);
-
-            std::cout << "- " << symbolicValue.first << ": " << expressionString.c_str() << std::endl;
-
-            assignments[symbolicValue.first] = expressionString.c_str();
-        }
-
-        std::cout << std::endl << std::endl;
-
-        nlohmann::json parallelAssignmentsJson = {};
-        for (auto assignment : assignments) {
-            parallelAssignmentsJson += {
-                    {"variable", assignment.first},
-                    {"expression", assignment.second}
-            };
-        }
-
-        nlohmann::json pathJson = {
-                {"start-cutpoint", path.front()->getName()},
-                {"target-cutpoint", path.back()->getName()},
-                {"condition", conditionString.c_str()},
-                {"parallel-assignments", parallelAssignmentsJson}
-        };
-
-        pathOutput += pathJson;
+        jsonPrinter->print(path);
 
         /*
         llvm::Module *myModule = makeLLVMModule(path);
@@ -155,10 +113,6 @@ public:
 
         delete myModule;
         */
-    }
-
-    void printPathOut() {
-        std::cout << std::setw(4) << pathOutput << std::endl;
     }
 
     /*
@@ -283,7 +237,9 @@ int main(int argc, char **argv) {
     llvm::InitializeNativeTarget();
     loadModules(inputFile, ctx, loadedModules, errorMsg);
 
-    MyKleeHandler *handler = new MyKleeHandler();
+    nlohmann::json jsonOut;
+    JsonPrinter *printer = new JsonPrinter(&jsonOut);
+    MyKleeHandler *handler = new MyKleeHandler(printer);
     klee::Interpreter::InterpreterOptions interpreterOptions;
 
     interpreter = klee::Interpreter::create(ctx, interpreterOptions, handler);
@@ -300,7 +256,10 @@ int main(int argc, char **argv) {
 
     interpreter->runFunctionAsSymbolic(function);
 
-    handler->printPathOut();
+    std::ofstream outFile;
+    outFile.open("test-out/out.json");
+    outFile << std::setw(4) << jsonOut;
+    outFile.close();
 
     delete handler;
     return 0;
