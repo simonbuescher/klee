@@ -26,7 +26,7 @@
 
 
 std::string OUT_DIR = "./test-out/";
-std::string INPUT_DIR = "../klee-test-programs/";
+std::string INPUT_DIR = "./";
 
 std::string KLEE_LIB_PATH = "/home/simon/Libraries/klee/build/runtime/lib";
 
@@ -218,6 +218,12 @@ void loadModules(const std::string &inputFile, llvm::LLVMContext &ctx,
     loadedModules.emplace_back(std::move(module));
 }
 
+void runJavaLib() {
+    FILE *fp;
+    int status;
+    char res[1024];
+}
+
 
 int main(int argc, char **argv) {
     assert(argc == 3 && "wrong arguments");
@@ -262,5 +268,6 @@ int main(int argc, char **argv) {
     outFile.close();
 
     delete handler;
+
     return 0;
 }

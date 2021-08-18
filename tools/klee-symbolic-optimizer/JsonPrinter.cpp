@@ -40,7 +40,7 @@ void JsonPrinter::print(klee::Path &path) {
 void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string *resultString) {
     switch (expression->getKind()) {
         case klee::Expr::Kind::Constant: {
-            auto *constExpr = dyn_cast<klee::ConstantExpr>(expression);
+            auto *constExpr = llvm::dyn_cast<klee::ConstantExpr>(expression);
 
             llvm::SmallString<32> constString;
             llvm::raw_svector_ostream constStream(constString);
@@ -70,7 +70,7 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
             break;
         }
         case klee::Expr::Kind::Eq: {
-            auto *binaryExpression = dyn_cast<klee::BinaryExpr>(expression);
+            auto *binaryExpression = llvm::dyn_cast<klee::BinaryExpr>(expression);
             if (binaryExpression->left->isZero()) {
                 std::string rightResult;
                 printExpression(binaryExpression->right, &rightResult);
@@ -111,7 +111,7 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
             break;
         }
         case klee::Expr::Kind::Read: {
-            auto *readExpression = dyn_cast<klee::ReadExpr>(expression);
+            auto *readExpression = llvm::dyn_cast<klee::ReadExpr>(expression);
             std::string variableName = readExpression->updates.root->getName();
             escapeVariableName(&variableName);
 
@@ -129,7 +129,7 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
 void JsonPrinter::printBinaryExpression(std::string op, klee::ref<klee::Expr> expression, std::string *result) {
     std::string resultLeft, resultRight;
 
-    klee::ref<klee::BinaryExpr> binaryExpression = dyn_cast<klee::BinaryExpr>(expression);
+    klee::ref<klee::BinaryExpr> binaryExpression = llvm::dyn_cast<klee::BinaryExpr>(expression);
 
     printExpression(binaryExpression->left, &resultLeft);
     printExpression(binaryExpression->right, &resultRight);
