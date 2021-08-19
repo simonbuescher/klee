@@ -4639,9 +4639,11 @@ void Executor::createArguments(Function *f, KFunction *kFunction, ExecutionState
         ref<ConstantExpr> size = ConstantExpr::createPointer(argumentSizeBytes);
 
         MemoryObject *memoryObject = memory->allocate(size->getZExtValue(), false, false, firstInstruction, 4);
-        memoryObject->setName(argument->getName());
+        // memoryObject->setName(argument->getName());
+        memoryObject->setName("arg" + itostr(currentArgumentNumber));
 
-        executeMakeSymbolic(*state, memoryObject, argument->getName());
+        // executeMakeSymbolic(*state, memoryObject, argument->getName());
+        executeMakeSymbolic(*state, memoryObject, "arg" + itostr(currentArgumentNumber));
 
         // loading value of symbolic arguments into locals
         bool success;

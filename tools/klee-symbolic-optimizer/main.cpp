@@ -13,6 +13,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <iomanip>
 #include <fstream>
+#include <sys/stat.h>
 
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/Module.h"
@@ -25,7 +26,7 @@
 #include "JsonPrinter.h"
 
 
-std::string OUT_DIR = "./test-out/";
+std::string OUT_DIR = "./run-out/";
 std::string INPUT_DIR = "./";
 
 std::string KLEE_LIB_PATH = "/home/simon/Libraries/klee/build/runtime/lib";
@@ -228,6 +229,8 @@ void runJavaLib() {
 int main(int argc, char **argv) {
     assert(argc == 3 && "wrong arguments");
 
+    mkdir(OUT_DIR.c_str(), 0777);
+
     std::string inputFile = INPUT_DIR + argv[1];
     std::string functionName = argv[2];
 
@@ -263,9 +266,27 @@ int main(int argc, char **argv) {
     interpreter->runFunctionAsSymbolic(function);
 
     std::ofstream outFile;
-    outFile.open("test-out/out.json");
+    outFile.open("run-out/out.json");
     outFile << std::setw(4) << jsonOut;
     outFile.close();
+
+    FILE *stream;
+    stream = popen("java -jar path-to-add.jar -i run-out/out.json -o run-out/adds.json", "r");
+    if (stream == nullptr) {
+        std::cout << "java fucked up" << std::endl;
+        exit(1);
+    }
+
+    std::cout << "java output" << std::endl;
+
+    char test_out[1024];
+    char *success;
+    do {
+        success = fgets(test_out, 1024, stream);
+        std::cout << test_out;
+    } while (success != nullptr);
+
+
 
     delete handler;
 
