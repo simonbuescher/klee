@@ -1,5 +1,5 @@
 #
-add_executable(klee-symbolic-optimizer main.cpp JsonPrinter.cpp)
+add_executable(klee-symbolic-optimizer main.cpp Runner.cpp JsonPrinter.cpp)
 
 set(KLEE_LIBS
     kleeCore

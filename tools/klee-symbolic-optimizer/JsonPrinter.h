@@ -6,13 +6,18 @@
 #define KLEE_JSONPRINTER_H
 
 
+#include "../../lib/Core/Path.h"
+
+#include <nlohmann/json.hpp>
+
 #include <klee/Expr/Expr.h>
 #include <klee/ADT/Ref.h>
-#include "../../lib/Core/Path.h"
+
 
 class JsonPrinter {
 private:
     nlohmann::json *jsonObject;
+
 public:
     explicit JsonPrinter(nlohmann::json *json) {
         jsonObject = json;

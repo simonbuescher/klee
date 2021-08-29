@@ -38,3 +38,4 @@ autom4te.cache/
 
 # test-out
 /test-out
+/run-out
