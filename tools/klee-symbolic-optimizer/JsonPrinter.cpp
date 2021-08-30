@@ -37,9 +37,20 @@ void JsonPrinter::print(klee::Path &path) {
             {"parallel-assignments", parallelAssignmentsJson}
     };
     */
+
+    std::string startCutpointName = path.front()->getName();
+    if (startCutpointName.empty()) {
+        startCutpointName = std::to_string((long)path.front());
+    }
+
+    std::string targetCutpointName = path.back()->getName();
+    if (targetCutpointName.empty()) {
+        targetCutpointName = std::to_string((long)path.back());
+    }
+
     *jsonObject += {
-            {"start-cutpoint", std::to_string((long)path.front())},
-            {"target-cutpoint", std::to_string((long)path.back())},
+            {"start-cutpoint", startCutpointName},
+            {"target-cutpoint", targetCutpointName},
             {"condition", conditionString},
             {"parallel-assignments", parallelAssignmentsJson}
     };

@@ -10,6 +10,7 @@
 #include <vector>
 #include <klee/Core/Interpreter.h>
 #include <nlohmann/json.hpp>
+#include <llvm/IR/IRBuilder.h>
 
 
 #define KLEE_LIB_PATH "/home/simon/Libraries/klee/build/runtime/lib"
@@ -26,7 +27,6 @@ private:
     std::string mainFunction;
 
     llvm::LLVMContext llvmContext;
-    klee::Interpreter *kleeInterpreter;
 
     std::vector<std::unique_ptr<llvm::Module>> loadedModules;
 
@@ -37,13 +37,17 @@ public:
     void init();
     void run();
 
+private:
     void parseArguments();
     void prepareFiles();
 
     void outputPathResults(nlohmann::json *outputJson);
     void callJavaLib();
     void readADDs(nlohmann::json *addJson);
-    void generateLLVMCode(nlohmann::json *addJson);
+    void generateLLVMCode(nlohmann::json *addJson, llvm::Function *baseFunction);
+    void generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder, llvm::Function *function, std::map<std::string, llvm::Value *> *variableMap, std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap);
+    void generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::BasicBlock *block, llvm::IRBuilder<> *builder, llvm::Function *function, std::map<std::string, llvm::Value *> *variableMap, std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap);
+    llvm::Value * generateLLVMCodeForExpressionTree(nlohmann::json *expressionTree, llvm::BasicBlock *block, llvm::IRBuilder<> *builder, std::map<std::string, llvm::Value *> *variableMap);
 };
 
 #endif //KLEE_RUNNER_H
