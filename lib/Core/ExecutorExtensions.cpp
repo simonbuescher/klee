@@ -11,31 +11,32 @@
 #include <llvm/IR/DataLayout.h>
 
 
-
 using namespace klee;
 using namespace llvm;
 
-void Executor::runFunctionAsSymbolic(Function *f) {
-    KFunction *kFunction = kmodule->functionMap[f];
+void Executor::runFunctionAsSymbolic(Function *function) {
+    KFunction *kFunction = this->kmodule->functionMap[function];
 
     std::vector<Path> paths;
-    findPaths(f, &paths);
+    findPaths(function, &paths);
+
+    std::map<std::string, llvm::Type *> variableTypes;
+    this->getVariableTypes(function, &variableTypes);
 
     for (Path path : paths) {
-        ExecutionState *state = new ExecutionState(kFunction);
+        auto *state = new ExecutionState(kFunction);
 
-        if (statsTracker)
-            statsTracker->framePushed(*state, nullptr);
+        if (this->statsTracker)
+            this->statsTracker->framePushed(*state, nullptr);
 
-        initializeGlobals(*state);
-        bindModuleConstants();
+        this->initializeGlobals(*state);
+        this->bindModuleConstants();
 
-        processTree = std::make_unique<PTree>(state);
+        this->processTree = std::make_unique<PTree>(state);
 
-        std::map<std::string, llvm::Type *> variableTypes;
 
-        createArguments(f, kFunction, state, &variableTypes);
-        runAllocas(kFunction, state);
+        this->createArguments(function, kFunction, state);
+        this->runAllocas(kFunction, state);
 
         // run path without allocas (if it has any)
         // at branches, fork into two states and pick the one on our path as the new current state
@@ -46,24 +47,24 @@ void Executor::runFunctionAsSymbolic(Function *f) {
 
             llvm::BasicBlock *block = *blockInPathIt;
             // todo sbuescher what if path start is phi block?
-            transferToBasicBlock(block, nullptr, *state);
+            this->transferToBasicBlock(block, nullptr, *state);
 
             for (llvm::Instruction &instruction : *block) {
                 KInstruction *ki = state->pc;
-                stepInstruction(*state);
+                this->stepInstruction(*state);
 
                 // todo sbuescher other block terminators
                 switch (instruction.getOpcode()) {
                     case Instruction::Alloca:
                         break;
                     case Instruction::Br: {
-                        BranchInst &branchInstruction = cast<BranchInst>(instruction);
+                        auto &branchInstruction = cast<BranchInst>(instruction);
 
                         BasicBlock *successorInPath = *(blockInPathIt + 1);
 
                         if (!branchInstruction.isUnconditional()) {
-                            ref<Expr> condition = eval(ki, 0, *state).value;
-                            condition = optimizer.optimizeExpr(condition, false);
+                            ref<Expr> condition = this->eval(ki, 0, *state).value;
+                            condition = this->optimizer.optimizeExpr(condition, false);
 
                             if (branchInstruction.getSuccessor(0) == successorInPath) {
                                 state->constraints.push_back(condition);
@@ -73,7 +74,8 @@ void Executor::runFunctionAsSymbolic(Function *f) {
                             }
                         }
 
-                        transferToBasicBlock(successorInPath, *blockInPathIt, *state);
+                        // todo sbuescher do we need this?
+                        this->transferToBasicBlock(successorInPath, *blockInPathIt, *state);
 
                         break;
                     }
@@ -86,22 +88,22 @@ void Executor::runFunctionAsSymbolic(Function *f) {
                         // no return needed as we just run our own function
                         break;
                     case Instruction::Switch: {
-                        SwitchInst *switchInstruction = cast<SwitchInst>(&instruction);
+                        auto *switchInstruction = cast<SwitchInst>(&instruction);
 
                         BasicBlock *successorInPath = *(blockInPathIt + 1);
 
-                        ref<Expr> switchExpression = eval(ki, 0, *state).value;
-                        switchExpression = toUnique(*state, switchExpression);
+                        ref<Expr> switchExpression = this->eval(ki, 0, *state).value;
+                        switchExpression = this->toUnique(*state, switchExpression);
 
                         ref<Expr> defaultCondition;
 
                         std::vector<ref<Expr>> targets;
                         for (auto switchCase : switchInstruction->cases()) {
-                            ref<Expr> caseExpression = evalConstant(switchCase.getCaseValue());
+                            ref<Expr> caseExpression = this->evalConstant(switchCase.getCaseValue());
                             BasicBlock *caseSuccessor = switchCase.getCaseSuccessor();
 
                             ref<Expr> caseCondition = EqExpr::create(switchExpression, caseExpression);
-                            caseCondition = optimizer.optimizeExpr(caseCondition, false);
+                            caseCondition = this->optimizer.optimizeExpr(caseCondition, false);
 
                             ref<Expr> notCaseCondition = Expr::createIsZero(caseCondition);
                             if (!defaultCondition) {
@@ -128,11 +130,12 @@ void Executor::runFunctionAsSymbolic(Function *f) {
                                 branchCondition = OrExpr::create(branchCondition, expr);
                             }
                         }
-                        branchCondition = optimizer.optimizeExpr(branchCondition, false);
+                        branchCondition = this->optimizer.optimizeExpr(branchCondition, false);
 
                         state->constraints.push_back(branchCondition);
 
-                        transferToBasicBlock(successorInPath, block, *state);
+                        // todo sbuescher do we need this?
+                        this->transferToBasicBlock(successorInPath, block, *state);
 
                         break;
                     }
@@ -140,7 +143,7 @@ void Executor::runFunctionAsSymbolic(Function *f) {
                         assert(false && "unreachable instruction reached");
                         break;
                     default:
-                        executeInstruction(*state, ki);
+                        this->executeInstruction(*state, ki);
                         break;
                 }
             }
@@ -148,66 +151,93 @@ void Executor::runFunctionAsSymbolic(Function *f) {
 
         path.setConstraints(state->constraints);
 
+        // todo sbuescher move addSymbolicVariable into function
         std::vector<ref<Expr>> symbolicValues;
-        getReturnValues(*state, symbolicValues);
+        this->getSymbolicValues(*state, &variableTypes, symbolicValues);
         for (unsigned long i = 0; i < symbolicValues.size(); i++) {
             std::string valueName = "%" + std::to_string(i + kFunction->numArgs);
             path.addSymbolicValue(valueName, symbolicValues[i]);
         }
 
-        interpreterHandler->processPathExecution(path);
+        this->interpreterHandler->processPathExecution(path);
 
 
         // copied from run method
-        processTree = nullptr;
+        this->processTree = nullptr;
 
         // hack to clear memory objects
-        delete memory;
-        memory = new MemoryManager(NULL);
+        delete this->memory;
+        this->memory = new MemoryManager(nullptr);
 
-        globalObjects.clear();
-        globalAddresses.clear();
+        this->globalObjects.clear();
+        this->globalAddresses.clear();
 
-        if (statsTracker)
-            statsTracker->done();
+        if (this->statsTracker)
+            this->statsTracker->done();
     }
 }
 
-void Executor::getReturnValues(const ExecutionState &state, std::vector<ref<Expr>> &results) {
+void Executor::getSymbolicValues(const ExecutionState &state, std::map<std::string, llvm::Type *> *variableTypes,
+                                 std::vector<ref<Expr>> &results) {
+    // we only have one stack frame because we do not allow subroutine calls
     StackFrame stackFrame = state.stack.back();
 
     for (const MemoryObject *memoryObject : stackFrame.allocas) {
+        std::string variableName = memoryObject->name;
+        llvm::Type *variableType = (*variableTypes)[variableName];
 
         ObjectPair objectPair;
         state.addressSpace.resolveOne(memoryObject->getBaseExpr(), objectPair);
 
-        unsigned exprWidth = Expr::Int32;
-        unsigned sizeWidth = memoryObject->size;
-        unsigned otherWidth = memoryObject->getSizeExpr()->getZExtValue();
-
         ref<Expr> offset = memoryObject->getOffsetExpr(memoryObject->getBaseExpr());
-        ref<Expr> result = objectPair.second->read(offset, Expr::Int32);
+        ref<Expr> result = objectPair.second->read(offset, this->getWidthForLLVMType(variableType));
 
         results.push_back(result);
     }
 }
 
-void Executor::runAllocas(const KFunction *kFunction, ExecutionState *state) {
-    // run all allocas in function
-    for (unsigned int i = 0; i < kFunction->numInstructions; i++) {
-        KInstruction *ki = kFunction->instructions[i];
-        if (ki->inst->getOpcode() == Instruction::Alloca) {
-            executeInstruction(*state, ki);
+void Executor::getVariableTypes(llvm::Function *function, std::map<std::string, llvm::Type *> *variableTypes) {
+    int argumentNumber = 0;
+    for (llvm::Argument &argument : function->args()) {
+        (*variableTypes)["arg" + itostr(argumentNumber)] = argument.getType();
 
-            std::string destName = "%" + itostr(ki->dest);
-            const MemoryObject *memoryObject = state->stack.back().allocas.back();
-            executeMakeSymbolic(*state, memoryObject, destName);
+        argumentNumber++;
+    }
+
+    int variableNumber = 0;
+    for (llvm::BasicBlock &basicBlock : *function) {
+        for (llvm::Instruction &instruction : basicBlock) {
+            if (instruction.getOpcode() == Instruction::Alloca) {
+                (*variableTypes)["var" + itostr(variableNumber)] = instruction.getType();
+
+                variableNumber++;
+            }
         }
     }
 }
 
-void Executor::createArguments(Function *f, KFunction *kFunction, ExecutionState *state,
-                               std::map<std::string, llvm::Type *> *variableTypes) {
+void Executor::runAllocas(const KFunction *kFunction, ExecutionState *state) {
+    int variableNumber = 0;
+
+    for (unsigned int i = 0; i < kFunction->numInstructions; i++) {
+        KInstruction *ki = kFunction->instructions[i];
+
+        if (ki->inst->getOpcode() == Instruction::Alloca) {
+            executeInstruction(*state, ki);
+
+            std::string variableName = "var" + itostr(variableNumber);
+
+            const MemoryObject *memoryObject = state->stack.back().allocas.back();
+            memoryObject->setName(variableName);
+
+            executeMakeSymbolic(*state, memoryObject, variableName);
+
+            variableNumber++;
+        }
+    }
+}
+
+void Executor::createArguments(Function *f, KFunction *kFunction, ExecutionState *state) {
     // create symbolic arguments for state
     Instruction *firstInstruction = &*(f->begin()->begin());
 
@@ -218,10 +248,6 @@ void Executor::createArguments(Function *f, KFunction *kFunction, ExecutionState
 
         llvm::Type *argumentType = argument->getType();
         std::string argumentName = "arg" + itostr(currentArgumentNumber);
-
-        // save argument type
-        (*variableTypes)[argumentName] = argumentType;
-
 
         // todo sbuescher support array arguments?? which size
         unsigned argumentSizeBytes = kmodule->targetData->getTypeAllocSize(argumentType);

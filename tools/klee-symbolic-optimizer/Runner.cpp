@@ -154,6 +154,8 @@ void Runner::run() {
     llvm::Module *finalModule = interpreter->setModule(this->loadedModules, moduleOptions);
     llvm::Function *function = finalModule->getFunction(this->mainFunction);
 
+    std::map<std::string, llvm::Type *> variableTypes;
+
     // run paths
     interpreter->runFunctionAsSymbolic(function);
 
@@ -281,6 +283,7 @@ void Runner::generateLLVMCode(nlohmann::json *addJson, llvm::Function *baseFunct
 void Runner::generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder, llvm::Function *function,
                                          std::map<std::string, llvm::Value *> *variableMap,
                                          std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap) {
+    // todo sbuescher put arguments directly into map, no alloca needed as they can never change their value
     (*variableMap)["arg0"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
     (*variableMap)["var1"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
     (*variableMap)["var2"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
@@ -288,6 +291,7 @@ void Runner::generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilde
     (*variableMap)["var4"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
     (*variableMap)["var5"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
 
+    // todo sbuescher this is obsolete, see above
     llvm::Value *argument = function->getArg(0);
     blockBuilder->CreateStore(argument, (*variableMap)["arg0"]);
 

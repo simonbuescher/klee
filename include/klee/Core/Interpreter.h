@@ -179,8 +179,6 @@ namespace klee {
 
         // Extension functions for symbolic optimizer
         virtual void runFunctionAsSymbolic(llvm::Function *f) = 0;
-
-        virtual void getReturnValues(const ExecutionState &state, std::vector<ref<Expr>> &res) = 0;
     };
 
 } // End klee namespace

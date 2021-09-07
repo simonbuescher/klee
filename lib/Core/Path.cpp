@@ -4,8 +4,6 @@
 
 #include "Path.h"
 
-#include <utility>
-
 #include "llvm/IR/Function.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/CFG.h"
