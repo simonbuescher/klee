@@ -26,6 +26,7 @@ klee_add_component(kleeCore
   StatsTracker.cpp
   TimingSolver.cpp
   UserSearcher.cpp
+  ExecutorExtensions.cpp
   Path.cpp
 )
 

@@ -578,10 +578,6 @@ namespace klee {
         void runFunctionAsMain(llvm::Function *f, int argc, char **argv,
                                char **envp) override;
 
-        void runFunctionAsSymbolic(llvm::Function *f) override;
-
-        void getReturnValues(const ExecutionState &state, std::vector<ref<Expr>> &result) override;
-
         /*** Runtime options ***/
 
         void setHaltExecution(bool value) override { haltExecution = value; }
@@ -620,7 +616,13 @@ namespace klee {
 
         void setMergingSearcher(MergingSearcher *ms) { mergingSearcher = ms; };
 
-        void createArguments(llvm::Function *f, KFunction *kFunction, ExecutionState *state);
+
+        // Extension functions for symbolic optimizer
+        void runFunctionAsSymbolic(llvm::Function *f) override;
+
+        void getReturnValues(const ExecutionState &state, std::vector<ref<Expr>> &result) override;
+
+        void createArguments(llvm::Function *f, KFunction *kFunction, ExecutionState *state, std::map<std::string, llvm::Type *> *variableTypes);
 
         void runAllocas(const KFunction *kFunction, ExecutionState *state);
     };

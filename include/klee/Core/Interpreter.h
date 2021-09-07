@@ -22,158 +22,166 @@
 struct KTest;
 
 namespace llvm {
-class Function;
-class LLVMContext;
-class Module;
-class raw_ostream;
-class raw_fd_ostream;
+    class Function;
+
+    class LLVMContext;
+
+    class Module;
+
+    class raw_ostream;
+
+    class raw_fd_ostream;
 }
 
 namespace klee {
-class ExecutionState;
-class Interpreter;
-class TreeStreamWriter;
+    class ExecutionState;
 
-class InterpreterHandler {
-public:
-  InterpreterHandler() {}
-  virtual ~InterpreterHandler() {}
+    class Interpreter;
 
-  virtual llvm::raw_ostream &getInfoStream() const = 0;
+    class TreeStreamWriter;
 
-  virtual std::string getOutputFilename(const std::string &filename) = 0;
-  virtual std::unique_ptr<llvm::raw_fd_ostream> openOutputFile(const std::string &filename) = 0;
+    class InterpreterHandler {
+    public:
+        InterpreterHandler() {}
 
-  virtual void incPathsCompleted() = 0;
-  virtual void incPathsExplored(std::uint32_t num = 1) = 0;
+        virtual ~InterpreterHandler() {}
 
-  virtual void processTestCase(const ExecutionState &state,
-                               const char *err,
-                               const char *suffix) = 0;
+        virtual llvm::raw_ostream &getInfoStream() const = 0;
 
-  virtual void processPathExecution(Path &path) = 0;
-};
+        virtual std::string getOutputFilename(const std::string &filename) = 0;
 
-class Interpreter {
-public:
-  /// ModuleOptions - Module level options which can be set when
-  /// registering a module with the interpreter.
-  struct ModuleOptions {
-    std::string LibraryDir;
-    std::string EntryPoint;
-    std::string OptSuffix;
-    bool Optimize;
-    bool CheckDivZero;
-    bool CheckOvershift;
+        virtual std::unique_ptr<llvm::raw_fd_ostream> openOutputFile(const std::string &filename) = 0;
 
-    ModuleOptions(const std::string &_LibraryDir,
-                  const std::string &_EntryPoint, const std::string &_OptSuffix,
-                  bool _Optimize, bool _CheckDivZero, bool _CheckOvershift)
-        : LibraryDir(_LibraryDir), EntryPoint(_EntryPoint),
-          OptSuffix(_OptSuffix), Optimize(_Optimize),
-          CheckDivZero(_CheckDivZero), CheckOvershift(_CheckOvershift) {}
-  };
+        virtual void incPathsCompleted() = 0;
 
-  enum LogType
-  {
-    STP, //.CVC (STP's native language)
-    KQUERY, //.KQUERY files (kQuery native language)
-    SMTLIB2 //.SMT2 files (SMTLIB version 2 files)
-  };
+        virtual void incPathsExplored(std::uint32_t num = 1) = 0;
 
-  /// InterpreterOptions - Options varying the runtime behavior during
-  /// interpretation.
-  struct InterpreterOptions {
-    /// A frequency at which to make concrete reads return constrained
-    /// symbolic values. This is used to test the correctness of the
-    /// symbolic execution on concrete programs.
-    unsigned MakeConcreteSymbolic;
+        virtual void processTestCase(const ExecutionState &state,
+                                     const char *err,
+                                     const char *suffix) = 0;
 
-    InterpreterOptions()
-        : MakeConcreteSymbolic(false)
-    {}
-  };
+        virtual void processPathExecution(Path &path) = 0;
+    };
 
-protected:
-  const InterpreterOptions interpreterOpts;
+    class Interpreter {
+    public:
+        /// ModuleOptions - Module level options which can be set when
+        /// registering a module with the interpreter.
+        struct ModuleOptions {
+            std::string LibraryDir;
+            std::string EntryPoint;
+            std::string OptSuffix;
+            bool Optimize;
+            bool CheckDivZero;
+            bool CheckOvershift;
 
-  Interpreter(const InterpreterOptions &_interpreterOpts)
-      : interpreterOpts(_interpreterOpts)
-  {}
+            ModuleOptions(const std::string &_LibraryDir,
+                          const std::string &_EntryPoint, const std::string &_OptSuffix,
+                          bool _Optimize, bool _CheckDivZero, bool _CheckOvershift)
+                    : LibraryDir(_LibraryDir), EntryPoint(_EntryPoint),
+                      OptSuffix(_OptSuffix), Optimize(_Optimize),
+                      CheckDivZero(_CheckDivZero), CheckOvershift(_CheckOvershift) {}
+        };
 
-public:
-  virtual ~Interpreter() {}
+        enum LogType {
+            STP, //.CVC (STP's native language)
+            KQUERY, //.KQUERY files (kQuery native language)
+            SMTLIB2 //.SMT2 files (SMTLIB version 2 files)
+        };
 
-  static Interpreter *create(llvm::LLVMContext &ctx,
-                             const InterpreterOptions &_interpreterOpts,
-                             InterpreterHandler *ih);
+        /// InterpreterOptions - Options varying the runtime behavior during
+        /// interpretation.
+        struct InterpreterOptions {
+            /// A frequency at which to make concrete reads return constrained
+            /// symbolic values. This is used to test the correctness of the
+            /// symbolic execution on concrete programs.
+            unsigned MakeConcreteSymbolic;
 
-  /// Register the module to be executed.
-  /// \param modules A list of modules that should form the final
-  ///                module
-  /// \return The final module after it has been optimized, checks
-  /// inserted, and modified for interpretation.
-  virtual llvm::Module *
-  setModule(std::vector<std::unique_ptr<llvm::Module>> &modules,
-            const ModuleOptions &opts) = 0;
+            InterpreterOptions()
+                    : MakeConcreteSymbolic(false) {}
+        };
 
-  // supply a tree stream writer which the interpreter will use
-  // to record the concrete path (as a stream of '0' and '1' bytes).
-  virtual void setPathWriter(TreeStreamWriter *tsw) = 0;
+    protected:
+        const InterpreterOptions interpreterOpts;
 
-  // supply a tree stream writer which the interpreter will use
-  // to record the symbolic path (as a stream of '0' and '1' bytes).
-  virtual void setSymbolicPathWriter(TreeStreamWriter *tsw) = 0;
+        Interpreter(const InterpreterOptions &_interpreterOpts)
+                : interpreterOpts(_interpreterOpts) {}
 
-  // supply a test case to replay from. this can be used to drive the
-  // interpretation down a user specified path. use null to reset.
-  virtual void setReplayKTest(const struct KTest *out) = 0;
+    public:
+        virtual ~Interpreter() {}
 
-  // supply a list of branch decisions specifying which direction to
-  // take on forks. this can be used to drive the interpretation down
-  // a user specified path. use null to reset.
-  virtual void setReplayPath(const std::vector<bool> *path) = 0;
+        static Interpreter *create(llvm::LLVMContext &ctx,
+                                   const InterpreterOptions &_interpreterOpts,
+                                   InterpreterHandler *ih);
 
-  // supply a set of symbolic bindings that will be used as "seeds"
-  // for the search. use null to reset.
-  virtual void useSeeds(const std::vector<struct KTest *> *seeds) = 0;
+        /// Register the module to be executed.
+        /// \param modules A list of modules that should form the final
+        ///                module
+        /// \return The final module after it has been optimized, checks
+        /// inserted, and modified for interpretation.
+        virtual llvm::Module *
+        setModule(std::vector<std::unique_ptr<llvm::Module>> &modules,
+                  const ModuleOptions &opts) = 0;
 
-  virtual void runFunctionAsMain(llvm::Function *f,
-                                 int argc,
-                                 char **argv,
-                                 char **envp) = 0;
+        // supply a tree stream writer which the interpreter will use
+        // to record the concrete path (as a stream of '0' and '1' bytes).
+        virtual void setPathWriter(TreeStreamWriter *tsw) = 0;
 
-  virtual void runFunctionAsSymbolic(llvm::Function *f) = 0;
+        // supply a tree stream writer which the interpreter will use
+        // to record the symbolic path (as a stream of '0' and '1' bytes).
+        virtual void setSymbolicPathWriter(TreeStreamWriter *tsw) = 0;
 
-  /*** Runtime options ***/
+        // supply a test case to replay from. this can be used to drive the
+        // interpretation down a user specified path. use null to reset.
+        virtual void setReplayKTest(const struct KTest *out) = 0;
 
-  virtual void setHaltExecution(bool value) = 0;
+        // supply a list of branch decisions specifying which direction to
+        // take on forks. this can be used to drive the interpretation down
+        // a user specified path. use null to reset.
+        virtual void setReplayPath(const std::vector<bool> *path) = 0;
 
-  virtual void setInhibitForking(bool value) = 0;
+        // supply a set of symbolic bindings that will be used as "seeds"
+        // for the search. use null to reset.
+        virtual void useSeeds(const std::vector<struct KTest *> *seeds) = 0;
 
-  virtual void prepareForEarlyExit() = 0;
+        virtual void runFunctionAsMain(llvm::Function *f,
+                                       int argc,
+                                       char **argv,
+                                       char **envp) = 0;
 
-  /*** State accessor methods ***/
+        /*** Runtime options ***/
 
-  virtual unsigned getPathStreamID(const ExecutionState &state) = 0;
+        virtual void setHaltExecution(bool value) = 0;
 
-  virtual unsigned getSymbolicPathStreamID(const ExecutionState &state) = 0;
+        virtual void setInhibitForking(bool value) = 0;
 
-  virtual void getConstraintLog(const ExecutionState &state,
-                                std::string &res,
-                                LogType logFormat = STP) = 0;
+        virtual void prepareForEarlyExit() = 0;
 
-  virtual bool getSymbolicSolution(const ExecutionState &state,
-                                   std::vector<
-                                       std::pair<std::string,
-                                           std::vector<unsigned char> > >
-                                   &res) = 0;
+        /*** State accessor methods ***/
 
-  virtual void getCoveredLines(const ExecutionState &state,
-                               std::map<const std::string*, std::set<unsigned> > &res) = 0;
+        virtual unsigned getPathStreamID(const ExecutionState &state) = 0;
 
-  virtual void getReturnValues(const ExecutionState &state, std::vector<ref<Expr>> &res) = 0;
-};
+        virtual unsigned getSymbolicPathStreamID(const ExecutionState &state) = 0;
+
+        virtual void getConstraintLog(const ExecutionState &state,
+                                      std::string &res,
+                                      LogType logFormat = STP) = 0;
+
+        virtual bool getSymbolicSolution(const ExecutionState &state,
+                                         std::vector<
+                                                 std::pair<std::string,
+                                                         std::vector<unsigned char> > >
+                                         &res) = 0;
+
+        virtual void getCoveredLines(const ExecutionState &state,
+                                     std::map<const std::string *, std::set<unsigned> > &res) = 0;
+
+
+        // Extension functions for symbolic optimizer
+        virtual void runFunctionAsSymbolic(llvm::Function *f) = 0;
+
+        virtual void getReturnValues(const ExecutionState &state, std::vector<ref<Expr>> &res) = 0;
+    };
 
 } // End klee namespace
 
