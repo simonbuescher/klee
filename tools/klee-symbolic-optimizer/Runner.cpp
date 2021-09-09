@@ -19,6 +19,7 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/IR/Verifier.h>
 
 
 class MyKleeHandler : public klee::InterpreterHandler {
@@ -247,7 +248,7 @@ void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nloh
     std::map<std::string, llvm::BasicBlock *> cutpointBlockMap;
     std::map<std::string, llvm::Value *> variableMap;
 
-    llvm::BasicBlock *entry = llvm::BasicBlock::Create(this->llvmContext, "lel", function);
+    llvm::BasicBlock *entry = llvm::BasicBlock::Create(this->llvmContext, "main", function);
 
     for (nlohmann::json add : *addJson) {
         std::string cutpointName = add["start-cutpoint"];
@@ -257,7 +258,7 @@ void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nloh
     }
 
     llvm::IRBuilder<> builder(entry);
-    this->generateLLVMCodePreparation(entry, &builder, &functionEvaluation, &variableMap, &cutpointBlockMap);
+    this->generateLLVMCodePreparation(entry, &builder, &functionEvaluation, function, &variableMap, &cutpointBlockMap);
 
     for (nlohmann::json add : *addJson) {
         std::string cutpointName = add["start-cutpoint"];
@@ -271,6 +272,10 @@ void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nloh
     }
 
     std::error_code error;
+    llvm::raw_fd_ostream errorStream(this->outputDirectory + "/verify.txt", error);
+    bool failed = llvm::verifyModule(module, &errorStream);
+    std::cout << "verifyModule says: " << failed << std::endl;
+
     llvm::raw_fd_ostream moduleOutputFile(
             this->outputDirectory + "/generated-llvm.bc",
             error
@@ -284,14 +289,15 @@ void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nloh
 void
 Runner::generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder,
                                     klee::FunctionEvaluation *functionEvaluation,
+                                    llvm::Function *function,
                                     std::map<std::string, llvm::Value *> *variableMap,
                                     std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap) {
-    llvm::Function *function = functionEvaluation->getFunction();
-
     int i = 0;
-    for (auto begin = function->arg_begin(), end = function->arg_end(); begin != end; begin++) {
-        (*variableMap)["arg" + std::to_string(i)] = begin;
-        i++;
+    for (llvm::Value &value : function->args()) {
+        // llvm::Value *argumentStore = blockBuilder->CreateAlloca(value.getType());
+        // blockBuilder->CreateStore(&value, argumentStore);
+
+        (*variableMap)["arg" + std::to_string(i++)] = &value;
     }
 
     for (std::pair<std::string, llvm::Type *> variableTypePair : functionEvaluation->getVariableTypeMap()) {
