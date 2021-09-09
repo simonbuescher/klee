@@ -27,6 +27,7 @@ klee_add_component(kleeCore
   TimingSolver.cpp
   UserSearcher.cpp
   ExecutorExtensions.cpp
+  FunctionEvaluation.cpp
   Path.cpp
 )
 

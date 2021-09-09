@@ -9,6 +9,7 @@
 
 #include "JsonPrinter.h"
 #include "Runner.h"
+#include "../../lib/Core/FunctionEvaluation.h"
 
 #include <nlohmann/json.hpp>
 
@@ -154,10 +155,10 @@ void Runner::run() {
     llvm::Module *finalModule = interpreter->setModule(this->loadedModules, moduleOptions);
     llvm::Function *function = finalModule->getFunction(this->mainFunction);
 
-    std::map<std::string, llvm::Type *> variableTypes;
 
     // run paths
-    interpreter->runFunctionAsSymbolic(function);
+    klee::FunctionEvaluation functionEvaluation(function);
+    interpreter->runFunctionAsSymbolic(&functionEvaluation);
 
     // output results to out dir
     this->outputPathResults(&outputJson);
@@ -170,7 +171,7 @@ void Runner::run() {
     this->readADDs(&addJson);
 
     // generate llvm code
-    this->generateLLVMCode(&addJson, function);
+    this->generateLLVMCode(functionEvaluation, &addJson);
 
     delete interpreter;
     delete handler;
@@ -234,11 +235,11 @@ void Runner::readADDs(nlohmann::json *addJson) {
     addsInputFile >> *addJson;
 }
 
-void Runner::generateLLVMCode(nlohmann::json *addJson, llvm::Function *baseFunction) {
+void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nlohmann::json *addJson) {
     llvm::Module module("generated-llvm", this->llvmContext);
 
     llvm::FunctionCallee functionCallee = module.getOrInsertFunction(this->mainFunction,
-                                                                     baseFunction->getFunctionType());
+                                                                     functionEvaluation.getFunction()->getFunctionType());
 
     auto *function = llvm::cast<llvm::Function>(functionCallee.getCallee());
     function->setCallingConv(llvm::CallingConv::C);
@@ -256,7 +257,7 @@ void Runner::generateLLVMCode(nlohmann::json *addJson, llvm::Function *baseFunct
     }
 
     llvm::IRBuilder<> builder(entry);
-    this->generateLLVMCodePreparation(entry, &builder, function, &variableMap, &cutpointBlockMap);
+    this->generateLLVMCodePreparation(entry, &builder, &functionEvaluation, &variableMap, &cutpointBlockMap);
 
     for (nlohmann::json add : *addJson) {
         std::string cutpointName = add["start-cutpoint"];
@@ -265,14 +266,14 @@ void Runner::generateLLVMCode(nlohmann::json *addJson, llvm::Function *baseFunct
         llvm::BasicBlock *block = cutpointBlockMap[cutpointName];
         llvm::IRBuilder<> addBlockBuilder(block);
 
-        this->generateLLVMCodeForDecisionDiagram(&decisionDiagram, block, &addBlockBuilder, function, &variableMap, &cutpointBlockMap);
+        this->generateLLVMCodeForDecisionDiagram(&decisionDiagram, block, &addBlockBuilder, function, &variableMap,
+                                                 &cutpointBlockMap);
     }
 
     std::error_code error;
     llvm::raw_fd_ostream moduleOutputFile(
             this->outputDirectory + "/generated-llvm.bc",
-            error,
-            llvm::sys::fs::F_None
+            error
     );
 
     llvm::WriteBitcodeToFile(module, moduleOutputFile);
@@ -280,20 +281,32 @@ void Runner::generateLLVMCode(nlohmann::json *addJson, llvm::Function *baseFunct
     moduleOutputFile.flush();
 }
 
-void Runner::generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder, llvm::Function *function,
-                                         std::map<std::string, llvm::Value *> *variableMap,
-                                         std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap) {
-    // todo sbuescher put arguments directly into map, no alloca needed as they can never change their value
-    (*variableMap)["arg0"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
-    (*variableMap)["var1"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
-    (*variableMap)["var2"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
-    (*variableMap)["var3"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
-    (*variableMap)["var4"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
-    (*variableMap)["var5"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
+void
+Runner::generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder,
+                                    klee::FunctionEvaluation *functionEvaluation,
+                                    std::map<std::string, llvm::Value *> *variableMap,
+                                    std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap) {
+    llvm::Function *function = functionEvaluation->getFunction();
 
-    // todo sbuescher this is obsolete, see above
-    llvm::Value *argument = function->getArg(0);
-    blockBuilder->CreateStore(argument, (*variableMap)["arg0"]);
+    int i = 0;
+    for (auto begin = function->arg_begin(), end = function->arg_end(); begin != end; begin++) {
+        (*variableMap)["arg" + std::to_string(i)] = begin;
+        i++;
+    }
+
+    for (std::pair<std::string, llvm::Type *> variableTypePair : functionEvaluation->getVariableTypeMap()) {
+        (*variableMap)[variableTypePair.first] = blockBuilder->CreateAlloca(variableTypePair.second);
+    }
+
+//    (*variableMap)["var1"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
+//    (*variableMap)["var2"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
+//    (*variableMap)["var3"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
+//    (*variableMap)["var4"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
+//    (*variableMap)["var5"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
+//
+//    // todo sbuescher this is obsolete, see above
+//    llvm::Value *argument = function->getArg(0);
+//    blockBuilder->CreateStore(argument, (*variableMap)["arg0"]);
 
     blockBuilder->CreateBr(cutpointBlockMap->begin()->second);
 }
@@ -308,7 +321,8 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::Ba
         nlohmann::json falseChildJson = (*ddJson)["false-child"];
 
         // create comparison
-        llvm::Value *compareResult = this->generateLLVMCodeForExpressionTree(&conditionJson, block, builder, variableMap);
+        llvm::Value *compareResult = this->generateLLVMCodeForExpressionTree(&conditionJson, block, builder,
+                                                                             variableMap);
 
         // create true basic block and build llvm code
         llvm::BasicBlock *trueBlock = llvm::BasicBlock::Create(this->llvmContext,
@@ -323,10 +337,12 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::Ba
 
 
         llvm::IRBuilder<> trueBlockBuilder(trueBlock);
-        this->generateLLVMCodeForDecisionDiagram(&trueChildJson, trueBlock, &trueBlockBuilder, function, variableMap, cutpointBlockMap);
+        this->generateLLVMCodeForDecisionDiagram(&trueChildJson, trueBlock, &trueBlockBuilder, function, variableMap,
+                                                 cutpointBlockMap);
 
         llvm::IRBuilder<> falseBlockBuilder(falseBlock);
-        this->generateLLVMCodeForDecisionDiagram(&falseChildJson, falseBlock, &falseBlockBuilder, function, variableMap, cutpointBlockMap);
+        this->generateLLVMCodeForDecisionDiagram(&falseChildJson, falseBlock, &falseBlockBuilder, function, variableMap,
+                                                 cutpointBlockMap);
 
     } else {
         std::string targetCutpointName = (*ddJson)["target-cutpoint"];
@@ -338,8 +354,12 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::Ba
             std::string variableName = pair.first;
             llvm::Value *variablePointer = pair.second;
 
-            llvm::Value *loadedVariable = builder->CreateLoad(variablePointer);
-            loadedVariableMap[variableName] = loadedVariable;
+            if (variableName[0] == 'a') {
+                loadedVariableMap[variableName] = variablePointer;
+            } else {
+                llvm::Value *loadedVariable = builder->CreateLoad(variablePointer);
+                loadedVariableMap[variableName] = loadedVariable;
+            }
         }
 
         // calculations for variables
@@ -367,13 +387,13 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::Ba
 
         llvm::BasicBlock *targetCutpoint;
         if (cutpointBlockMap->find(targetCutpointName) != cutpointBlockMap->end()) {
-             targetCutpoint = (*cutpointBlockMap)[targetCutpointName];
+            targetCutpoint = (*cutpointBlockMap)[targetCutpointName];
         } else {
             targetCutpoint = llvm::BasicBlock::Create(this->llvmContext, "end", function);
             (*cutpointBlockMap)[targetCutpointName] = targetCutpoint;
 
             llvm::IRBuilder<> endBlockBuilder(targetCutpoint);
-            llvm::Value *functionResult = endBlockBuilder.CreateLoad((*variableMap)["var2"]);
+            llvm::Value *functionResult = endBlockBuilder.CreateLoad((*variableMap)["var1"]);
             endBlockBuilder.CreateRet(functionResult);
         }
 
@@ -384,6 +404,8 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::Ba
 llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressionTree, llvm::BasicBlock *block,
                                                        llvm::IRBuilder<> *builder,
                                                        std::map<std::string, llvm::Value *> *variableMap) {
+    std::string treeString = expressionTree->dump(4);
+
     if (expressionTree->is_object()) {
         nlohmann::json leftChild = (*expressionTree)["left-child"];
         nlohmann::json rightChild = (*expressionTree)["right-child"];
@@ -421,8 +443,13 @@ llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressio
         std::string value = expressionTree->get<std::string>();
 
         if (variableMap->find(value) != variableMap->end()) {
-            llvm::Value *variablePointer = (*variableMap)[expressionTree->get<std::string>()];
-            return builder->CreateLoad(variablePointer);
+            llvm::Value *variableValue = (*variableMap)[expressionTree->get<std::string>()];
+
+            if (value[0] == 'a') {
+                return variableValue;
+            } else {
+                return builder->CreateLoad(variableValue);
+            }
         } else {
             long longValue = std::stol(value);
             return llvm::ConstantInt::get(llvm::Type::getInt32Ty(this->llvmContext), longValue, true);

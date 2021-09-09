@@ -618,11 +618,9 @@ namespace klee {
 
 
         // Extension functions for symbolic optimizer
-        void runFunctionAsSymbolic(llvm::Function *function) override;
+        void runFunctionAsSymbolic(FunctionEvaluation *functionEvaluation) override;
 
-        void getSymbolicValues(const ExecutionState &state, std::map<std::string, llvm::Type *> *variableTypes, std::vector<ref<Expr>> &results);
-
-        void getVariableTypes(llvm::Function *function, std::map<std::string, llvm::Type *> *variableTypes);
+        void addSymbolicValuesToPath(const ExecutionState &state, FunctionEvaluation *functionEvaluation, Path &path);
 
         void createArguments(llvm::Function *f, KFunction *kFunction, ExecutionState *state);
 

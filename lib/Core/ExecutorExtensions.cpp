@@ -14,16 +14,12 @@
 using namespace klee;
 using namespace llvm;
 
-void Executor::runFunctionAsSymbolic(Function *function) {
+
+void Executor::runFunctionAsSymbolic(FunctionEvaluation *functionEvaluation) {
+    llvm::Function *function = functionEvaluation->getFunction();
     KFunction *kFunction = this->kmodule->functionMap[function];
 
-    std::vector<Path> paths;
-    findPaths(function, &paths);
-
-    std::map<std::string, llvm::Type *> variableTypes;
-    this->getVariableTypes(function, &variableTypes);
-
-    for (Path path : paths) {
+    for (Path &path : functionEvaluation->getPathList()) {
         auto *state = new ExecutionState(kFunction);
 
         if (this->statsTracker)
@@ -150,14 +146,7 @@ void Executor::runFunctionAsSymbolic(Function *function) {
         }
 
         path.setConstraints(state->constraints);
-
-        // todo sbuescher move addSymbolicVariable into function
-        std::vector<ref<Expr>> symbolicValues;
-        this->getSymbolicValues(*state, &variableTypes, symbolicValues);
-        for (unsigned long i = 0; i < symbolicValues.size(); i++) {
-            std::string valueName = "%" + std::to_string(i + kFunction->numArgs);
-            path.addSymbolicValue(valueName, symbolicValues[i]);
-        }
+        this->addSymbolicValuesToPath(*state, functionEvaluation, path);
 
         this->interpreterHandler->processPathExecution(path);
 
@@ -177,14 +166,13 @@ void Executor::runFunctionAsSymbolic(Function *function) {
     }
 }
 
-void Executor::getSymbolicValues(const ExecutionState &state, std::map<std::string, llvm::Type *> *variableTypes,
-                                 std::vector<ref<Expr>> &results) {
+void Executor::addSymbolicValuesToPath(const ExecutionState &state, FunctionEvaluation *functionEvaluation, Path &path) {
     // we only have one stack frame because we do not allow subroutine calls
     StackFrame stackFrame = state.stack.back();
 
     for (const MemoryObject *memoryObject : stackFrame.allocas) {
         std::string variableName = memoryObject->name;
-        llvm::Type *variableType = (*variableTypes)[variableName];
+        llvm::Type *variableType = functionEvaluation->getVariableTypeMap().getVariableType(variableName);
 
         ObjectPair objectPair;
         state.addressSpace.resolveOne(memoryObject->getBaseExpr(), objectPair);
@@ -192,27 +180,7 @@ void Executor::getSymbolicValues(const ExecutionState &state, std::map<std::stri
         ref<Expr> offset = memoryObject->getOffsetExpr(memoryObject->getBaseExpr());
         ref<Expr> result = objectPair.second->read(offset, this->getWidthForLLVMType(variableType));
 
-        results.push_back(result);
-    }
-}
-
-void Executor::getVariableTypes(llvm::Function *function, std::map<std::string, llvm::Type *> *variableTypes) {
-    int argumentNumber = 0;
-    for (llvm::Argument &argument : function->args()) {
-        (*variableTypes)["arg" + itostr(argumentNumber)] = argument.getType();
-
-        argumentNumber++;
-    }
-
-    int variableNumber = 0;
-    for (llvm::BasicBlock &basicBlock : *function) {
-        for (llvm::Instruction &instruction : basicBlock) {
-            if (instruction.getOpcode() == Instruction::Alloca) {
-                (*variableTypes)["var" + itostr(variableNumber)] = instruction.getType();
-
-                variableNumber++;
-            }
-        }
+        path.getSymbolicValues()[variableName] = result;
     }
 }
 

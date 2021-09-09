@@ -44,8 +44,8 @@ private:
     void outputPathResults(nlohmann::json *outputJson);
     void callJavaLib();
     void readADDs(nlohmann::json *addJson);
-    void generateLLVMCode(nlohmann::json *addJson, llvm::Function *baseFunction);
-    void generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder, llvm::Function *function, std::map<std::string, llvm::Value *> *variableMap, std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap);
+    void generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nlohmann::json *addJson);
+    void generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder, klee::FunctionEvaluation *functionEvaluation, std::map<std::string, llvm::Value *> *variableMap, std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap);
     void generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::BasicBlock *block, llvm::IRBuilder<> *builder, llvm::Function *function, std::map<std::string, llvm::Value *> *variableMap, std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap);
     llvm::Value * generateLLVMCodeForExpressionTree(nlohmann::json *expressionTree, llvm::BasicBlock *block, llvm::IRBuilder<> *builder, std::map<std::string, llvm::Value *> *variableMap);
 };

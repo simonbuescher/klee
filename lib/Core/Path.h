@@ -6,8 +6,11 @@
 #define KLEE_PATH_H
 
 
+#include "VariableStores.h"
+
 #include <llvm/IR/BasicBlock.h>
 #include <klee/Expr/Constraints.h>
+
 
 namespace klee {
 
@@ -17,7 +20,7 @@ namespace klee {
         bool executeFinishBlock;
 
         ConstraintSet constraints;
-        std::map<std::string, ref<Expr>> symbolicValues;
+        VariableExpressionMap symbolicValues;
 
         std::string repr;
 
@@ -38,9 +41,7 @@ namespace klee {
 
         ConstraintSet getConstraints();
 
-        void addSymbolicValue(const std::string& name, ref<Expr> symbolicValue);
-
-        std::map<std::string, ref<Expr>> getSymbolicValues();
+        VariableExpressionMap &getSymbolicValues();
 
         std::string getPathRepr();
 
@@ -52,9 +53,6 @@ namespace klee {
 
         std::vector<llvm::BasicBlock *>::iterator end();
     };
-
-
-    void findPaths(llvm::Function *function, std::vector<Path> *results);
 
 }
 

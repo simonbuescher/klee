@@ -29,15 +29,6 @@ void JsonPrinter::print(klee::Path &path) {
         };
     }
 
-    /*
-    *jsonObject += {
-            {"start-cutpoint", path.front()->getName()},
-            {"target-cutpoint", path.back()->getName()},
-            {"condition", conditionString},
-            {"parallel-assignments", parallelAssignmentsJson}
-    };
-    */
-
     std::string startCutpointName = path.front()->getName();
     if (startCutpointName.empty()) {
         startCutpointName = std::to_string((long)path.front());
@@ -61,11 +52,9 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
         case klee::Expr::Kind::Constant: {
             auto *constExpr = llvm::dyn_cast<klee::ConstantExpr>(expression);
 
-            llvm::SmallString<32> constString;
-            llvm::raw_svector_ostream constStream(constString);
-            constExpr->getAPValue().print(constStream, true);
+            uint64_t value = constExpr->getLimitedValue(UINT64_MAX);
 
-            *resultString = constString.c_str();
+            *resultString = std::to_string(value);
             break;
         }
         case klee::Expr::Kind::Add: {
@@ -126,7 +115,7 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
             break;
         }
         case klee::Expr::Kind::Concat: {
-            printExpression(expression->getKid(0), resultString);
+            printExpression(expression->getKid(1), resultString);
             break;
         }
         case klee::Expr::Kind::Read: {

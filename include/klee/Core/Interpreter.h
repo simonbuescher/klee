@@ -17,6 +17,7 @@
 #include <llvm/IR/BasicBlock.h>
 #include "../../../lib/Core/ExecutionState.h"
 #include "../../../lib/Core/Path.h"
+#include "../../../lib/Core/FunctionEvaluation.h"
 
 
 struct KTest;
@@ -178,7 +179,7 @@ namespace klee {
 
 
         // Extension functions for symbolic optimizer
-        virtual void runFunctionAsSymbolic(llvm::Function *f) = 0;
+        virtual void runFunctionAsSymbolic(FunctionEvaluation *functionEvaluation) = 0;
     };
 
 } // End klee namespace
