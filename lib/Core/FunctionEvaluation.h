@@ -28,6 +28,8 @@ namespace klee {
         VariableTypeMap variableTypeMap;
         PathList pathList;
 
+        std::string returnValueName;
+
     public:
         explicit FunctionEvaluation(llvm::Function *function);
 
@@ -41,6 +43,19 @@ namespace klee {
 
         PathList &getPathList() {
             return this->pathList;
+        }
+
+        std::string &getReturnValueName() {
+            return this->returnValueName;
+        };
+
+        bool setReturnValueName(std::string name) {
+            if (this->returnValueName.empty()) {
+                this->returnValueName = name;
+                return true;
+            } else {
+                return this->returnValueName.compare(name) == 0;
+            }
         }
 
     private:

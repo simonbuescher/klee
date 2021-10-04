@@ -16,6 +16,7 @@
 #include <klee/Support/ErrorHandling.h>
 #include <klee/Support/FileHandling.h>
 #include <klee/Support/ModuleUtil.h>
+#include <klee/Core/ADDExecutor.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
@@ -140,10 +141,11 @@ void Runner::run() {
     nlohmann::json outputJson;
 
     auto *printer = new JsonPrinter(&outputJson);
-    auto *handler = new MyKleeHandler(printer, this->outputDirectory);
+    // auto *handler = new MyKleeHandler(printer, this->outputDirectory);
 
-    klee::Interpreter::InterpreterOptions interpreterOptions;
-    klee::Interpreter *interpreter = klee::Interpreter::create(this->llvmContext, interpreterOptions, handler);
+    // klee::Interpreter::InterpreterOptions interpreterOptions;
+    // klee::Interpreter *interpreter = klee::Interpreter::create(this->llvmContext, interpreterOptions, handler);
+    auto *executor = new klee::ADDExecutor(this->llvmContext, printer);
 
     klee::Interpreter::ModuleOptions moduleOptions(
             KLEE_LIB_PATH,
@@ -153,13 +155,14 @@ void Runner::run() {
             true,
             true
     );
-    llvm::Module *finalModule = interpreter->setModule(this->loadedModules, moduleOptions);
+    llvm::Module *finalModule = executor->setModule(this->loadedModules, moduleOptions);
     llvm::Function *function = finalModule->getFunction(this->mainFunction);
 
 
     // run paths
     klee::FunctionEvaluation functionEvaluation(function);
-    interpreter->runFunctionAsSymbolic(&functionEvaluation);
+    //interpreter->runFunctionAsSymbolic(&functionEvaluation);
+    executor->runFunction(&functionEvaluation);
 
     // output results to out dir
     this->outputPathResults(&outputJson);
@@ -174,8 +177,9 @@ void Runner::run() {
     // generate llvm code
     this->generateLLVMCode(functionEvaluation, &addJson);
 
-    delete interpreter;
-    delete handler;
+    // delete interpreter;
+    // delete handler;
+    delete executor;
     delete printer;
 }
 
@@ -260,6 +264,13 @@ void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nloh
     llvm::IRBuilder<> builder(entry);
     this->generateLLVMCodePreparation(entry, &builder, &functionEvaluation, function, &variableMap, &cutpointBlockMap);
 
+    llvm::BasicBlock *targetCutpoint = llvm::BasicBlock::Create(this->llvmContext, "end", function);
+    cutpointBlockMap["end"] = targetCutpoint;
+
+    llvm::IRBuilder<> endBlockBuilder(targetCutpoint);
+    llvm::Value *functionResult = endBlockBuilder.CreateLoad(variableMap[functionEvaluation.getReturnValueName()]);
+    endBlockBuilder.CreateRet(functionResult);
+
     for (nlohmann::json add : *addJson) {
         std::string cutpointName = add["start-cutpoint"];
         nlohmann::json decisionDiagram = add["decision-diagram"];
@@ -271,11 +282,19 @@ void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nloh
                                                  &cutpointBlockMap);
     }
 
-    std::error_code error;
-    llvm::raw_fd_ostream errorStream(this->outputDirectory + "/verify.txt", error);
-    bool failed = llvm::verifyModule(module, &errorStream);
-    std::cout << "verifyModule says: " << failed << std::endl;
+    if (!this->verifyModule(module)) {
+        std::cout << "first verify module failed" << std::endl;
+        exit(EXIT_FAILURE);
+    }
 
+    // this->optimizeFunction(function);
+
+    if (!this->verifyModule(module)) {
+        std::cout << "second verify module failed" << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    std::error_code error;
     llvm::raw_fd_ostream moduleOutputFile(
             this->outputDirectory + "/generated-llvm.bc",
             error
@@ -286,33 +305,19 @@ void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nloh
     moduleOutputFile.flush();
 }
 
-void
-Runner::generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder,
-                                    klee::FunctionEvaluation *functionEvaluation,
-                                    llvm::Function *function,
-                                    std::map<std::string, llvm::Value *> *variableMap,
-                                    std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap) {
+void Runner::generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder,
+                                         klee::FunctionEvaluation *functionEvaluation,
+                                         llvm::Function *function,
+                                         std::map<std::string, llvm::Value *> *variableMap,
+                                         std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap) {
     int i = 0;
     for (llvm::Value &value : function->args()) {
-        // llvm::Value *argumentStore = blockBuilder->CreateAlloca(value.getType());
-        // blockBuilder->CreateStore(&value, argumentStore);
-
         (*variableMap)["arg" + std::to_string(i++)] = &value;
     }
 
     for (std::pair<std::string, llvm::Type *> variableTypePair : functionEvaluation->getVariableTypeMap()) {
         (*variableMap)[variableTypePair.first] = blockBuilder->CreateAlloca(variableTypePair.second);
     }
-
-//    (*variableMap)["var1"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
-//    (*variableMap)["var2"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
-//    (*variableMap)["var3"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
-//    (*variableMap)["var4"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
-//    (*variableMap)["var5"] = blockBuilder->CreateAlloca(llvm::Type::getInt32Ty(this->llvmContext));
-//
-//    // todo sbuescher this is obsolete, see above
-//    llvm::Value *argument = function->getArg(0);
-//    blockBuilder->CreateStore(argument, (*variableMap)["arg0"]);
 
     blockBuilder->CreateBr(cutpointBlockMap->begin()->second);
 }
@@ -354,53 +359,25 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::Ba
         std::string targetCutpointName = (*ddJson)["target-cutpoint"];
         nlohmann::json parallelAssignment = (*ddJson)["parallel-assignments"];
 
-        // load all variables so the values dont change during assignment
-        std::map<std::string, llvm::Value *> loadedVariableMap;
-        for (std::pair<std::string, llvm::Value *> pair : *variableMap) {
-            std::string variableName = pair.first;
-            llvm::Value *variablePointer = pair.second;
-
-            if (variableName[0] == 'a') {
-                loadedVariableMap[variableName] = variablePointer;
-            } else {
-                llvm::Value *loadedVariable = builder->CreateLoad(variablePointer);
-                loadedVariableMap[variableName] = loadedVariable;
-            }
-        }
-
+        std::map<std::string, llvm::Value *> results;
         // calculations for variables
         for (nlohmann::json assignment : parallelAssignment) {
             std::string targetVariableName = assignment["variable"];
             nlohmann::json expressionJson = assignment["expression"];
 
-            llvm::Value *result;
-            if (expressionJson.is_object()) {
-                result = this->generateLLVMCodeForExpressionTree(&expressionJson, block, builder, variableMap);
-            } else {
-                std::string value = expressionJson.get<std::string>();
+            llvm::Value *result = this->generateLLVMCodeForExpressionTree(&expressionJson, block, builder, variableMap);
+            results[targetVariableName] = result;
+        }
 
-                if (loadedVariableMap.find(value) != loadedVariableMap.end()) {
-                    result = loadedVariableMap[value];
-                } else {
-                    long longValue = std::stol(value);
-                    result = llvm::ConstantInt::get(llvm::Type::getInt32Ty(this->llvmContext), longValue, true);
-                }
-            }
-
-            llvm::Value *targetVariable = (*variableMap)[targetVariableName];
-            builder->CreateStore(result, targetVariable);
+        for (std::pair<std::string, llvm::Value *> resultPair : results) {
+            builder->CreateStore(resultPair.second, (*variableMap)[resultPair.first]);
         }
 
         llvm::BasicBlock *targetCutpoint;
         if (cutpointBlockMap->find(targetCutpointName) != cutpointBlockMap->end()) {
             targetCutpoint = (*cutpointBlockMap)[targetCutpointName];
         } else {
-            targetCutpoint = llvm::BasicBlock::Create(this->llvmContext, "end", function);
-            (*cutpointBlockMap)[targetCutpointName] = targetCutpoint;
-
-            llvm::IRBuilder<> endBlockBuilder(targetCutpoint);
-            llvm::Value *functionResult = endBlockBuilder.CreateLoad((*variableMap)["var1"]);
-            endBlockBuilder.CreateRet(functionResult);
+            targetCutpoint = (*cutpointBlockMap)["end"];
         }
 
         builder->CreateBr(targetCutpoint);
@@ -466,4 +443,36 @@ llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressio
     std::cout << expressionTree->dump(4);
 
     exit(EXIT_FAILURE);
+}
+
+
+void Runner::optimizeFunction(llvm::Function *function) {
+    for (auto &block : *function) {
+        for (auto instructionIt = block.begin(), instructionEnd = block.end(); instructionIt != instructionEnd; instructionIt++) {
+            llvm::Instruction &instruction = *instructionIt;
+            if (instruction.getOpcode() != llvm::Instruction::Load) {
+                continue;
+            }
+
+            for (auto secondIt = instructionIt; secondIt != instructionEnd; secondIt++) {
+                llvm::Instruction &secondInstruction = *secondIt;
+                if (secondInstruction.getOpcode() != llvm::Instruction::Load) {
+                    continue;
+                }
+
+                if (secondInstruction.isIdenticalTo(&instruction)) {
+                    secondInstruction.replaceAllUsesWith(&instruction);
+                    secondInstruction.eraseFromParent();
+                }
+            }
+        }
+    }
+}
+
+
+bool Runner::verifyModule(llvm::Module &module) {
+    std::error_code error;
+    llvm::raw_fd_ostream errorStream(this->outputDirectory + "/verify.txt", error);
+    bool failed = llvm::verifyModule(module, &errorStream);
+    return !failed;
 }

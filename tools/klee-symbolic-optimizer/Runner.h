@@ -48,6 +48,8 @@ private:
     void generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder, klee::FunctionEvaluation *functionEvaluation, llvm::Function *function, std::map<std::string, llvm::Value *> *variableMap, std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap);
     void generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::BasicBlock *block, llvm::IRBuilder<> *builder, llvm::Function *function, std::map<std::string, llvm::Value *> *variableMap, std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap);
     llvm::Value * generateLLVMCodeForExpressionTree(nlohmann::json *expressionTree, llvm::BasicBlock *block, llvm::IRBuilder<> *builder, std::map<std::string, llvm::Value *> *variableMap);
+    void optimizeFunction(llvm::Function *function);
+    bool verifyModule(llvm::Module &module);
 };
 
 #endif //KLEE_RUNNER_H

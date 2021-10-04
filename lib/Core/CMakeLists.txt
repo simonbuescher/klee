@@ -29,6 +29,9 @@ klee_add_component(kleeCore
   ExecutorExtensions.cpp
   FunctionEvaluation.cpp
   Path.cpp
+  ADDExecutor.cpp
+  ADDExecutorUtils.cpp
+  ADDExecutorInstruction.cpp
 )
 
 # TODO: Work out what the correct LLVM components are for

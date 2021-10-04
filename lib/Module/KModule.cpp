@@ -300,19 +300,21 @@ void KModule::optimiseAndPrepare(
 }
 
 void KModule::manifest(InterpreterHandler *ih, bool forceSourceOutput) {
-  if (OutputSource || forceSourceOutput) {
-    std::unique_ptr<llvm::raw_fd_ostream> os(ih->openOutputFile("assembly.ll"));
-    assert(os && !os->has_error() && "unable to open source output");
-    *os << *module;
-  }
+  if (ih != nullptr) {
+      if (OutputSource || forceSourceOutput) {
+          std::unique_ptr<llvm::raw_fd_ostream> os(ih->openOutputFile("assembly.ll"));
+          assert(os && !os->has_error() && "unable to open source output");
+          *os << *module;
+      }
 
-  if (OutputModule) {
-    std::unique_ptr<llvm::raw_fd_ostream> f(ih->openOutputFile("final.bc"));
+      if (OutputModule) {
+          std::unique_ptr<llvm::raw_fd_ostream> f(ih->openOutputFile("final.bc"));
 #if LLVM_VERSION_CODE >= LLVM_VERSION(7, 0)
-    WriteBitcodeToFile(*module, *f);
+          WriteBitcodeToFile(*module, *f);
 #else
-    WriteBitcodeToFile(module.get(), *f);
+          WriteBitcodeToFile(module.get(), *f);
 #endif
+      }
   }
 
   /* Build shadow structures */

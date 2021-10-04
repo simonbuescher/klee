@@ -80,9 +80,51 @@ void Executor::runFunctionAsSymbolic(FunctionEvaluation *functionEvaluation) {
                         assert(false && "calls are currently not supported");
                         break;
                     }
-                    case Instruction::Ret:
-                        // no return needed as we just run our own function
+                    case Instruction::Ret: {
+                        auto *ri = cast<ReturnInst>(&instruction);
+                        bool isVoidReturn = (ri->getNumOperands() == 0);
+
+                        if (isVoidReturn) {
+                            break;
+                        }
+
+                        // get local number of return value (ki->operators[0] should do)
+                        int n = ki->operands[0];
+
+                        KInstruction *loadInstruction;
+                        for (unsigned i = 0; i < kFunction->numInstructions; i++) {
+                            if ((int)kFunction->instructions[i]->dest == n) {
+                                loadInstruction = kFunction->instructions[i];
+                                break;
+                            }
+                        }
+
+                        // get instruction of that number
+                        Instruction *returnValueInstruction = loadInstruction->inst;
+
+                        // if its not a load, assert(false) for now
+                        if (returnValueInstruction->getOpcode() != Instruction::Load) {
+                            assert(false && "what should i do now?");
+                        }
+
+                        // if its a load, get what value we are loading
+                        ref<Expr> result = this->eval(loadInstruction, 0, *state).value;
+
+                        // get variable name out of it
+                        bool resolveSuccess;
+                        ObjectPair objectPair;
+                        state->addressSpace.resolveOne(*state, solver, result, objectPair, resolveSuccess);
+
+                        std::string name = objectPair.first->name;
+
+                        // save variable name in function evaluation
+                        bool success = functionEvaluation->setReturnValueName(name);
+                        if (!success) {
+                            assert(false && "different return values on different paths are not allowed");
+                        }
+
                         break;
+                    }
                     case Instruction::Switch: {
                         auto *switchInstruction = cast<SwitchInst>(&instruction);
 

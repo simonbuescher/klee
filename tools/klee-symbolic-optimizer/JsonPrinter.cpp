@@ -78,6 +78,7 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
             break;
         }
         case klee::Expr::Kind::Eq: {
+            // todo sbuescher keep == 0
             auto *binaryExpression = llvm::dyn_cast<klee::BinaryExpr>(expression);
             if (binaryExpression->left->isZero()) {
                 std::string rightResult;
@@ -125,6 +126,11 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
 
             *resultString = variableName;
 
+            break;
+        }
+        case klee::Expr::Kind::CastKindFirst:
+        case klee::Expr::Kind::CastKindLast: {
+            printExpression(expression->getKid(0), resultString);
             break;
         }
         default: {
