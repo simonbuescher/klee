@@ -8,9 +8,13 @@
 
 #include <memory>
 #include <vector>
-#include <klee/Core/Interpreter.h>
+
 #include <nlohmann/json.hpp>
+
 #include <llvm/IR/IRBuilder.h>
+
+#include <klee/Core/Interpreter.h>
+#include <klee/Core/FunctionEvaluation.h>
 
 
 #define KLEE_LIB_PATH "/home/simon/Libraries/klee/build/runtime/lib"
@@ -41,7 +45,7 @@ private:
     void parseArguments();
     void prepareFiles();
 
-    void outputPathResults(nlohmann::json *outputJson);
+    void outputPathResults(klee::FunctionEvaluation &functionEvaluation);
     void callJavaLib();
     void readADDs(nlohmann::json *addJson);
     void generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nlohmann::json *addJson);

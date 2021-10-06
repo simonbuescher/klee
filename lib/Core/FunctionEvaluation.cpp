@@ -2,9 +2,11 @@
 // Created by simon on 08.09.21.
 //
 
-#include "FunctionEvaluation.h"
-
 #include <llvm/IR/CFG.h>
+
+#include <klee/Core/FunctionEvaluation.h>
+#include <klee/Core/Types.h>
+
 
 namespace klee {
     FunctionEvaluation::FunctionEvaluation(llvm::Function *function) {

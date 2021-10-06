@@ -615,16 +615,6 @@ namespace klee {
         MergingSearcher *getMergingSearcher() const { return mergingSearcher; };
 
         void setMergingSearcher(MergingSearcher *ms) { mergingSearcher = ms; };
-
-
-        // Extension functions for symbolic optimizer
-        void runFunctionAsSymbolic(FunctionEvaluation *functionEvaluation) override;
-
-        void addSymbolicValuesToPath(const ExecutionState &state, FunctionEvaluation *functionEvaluation, Path &path);
-
-        void createArguments(llvm::Function *f, KFunction *kFunction, ExecutionState *state);
-
-        void runAllocas(const KFunction *kFunction, ExecutionState *state);
     };
 
 } // End klee namespace

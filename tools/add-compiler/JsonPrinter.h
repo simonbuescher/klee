@@ -6,23 +6,18 @@
 #define KLEE_JSONPRINTER_H
 
 
-#include "../../lib/Core/Path.h"
+#include <klee/ADT/Ref.h>
+#include "klee/Core/Path.h"
+#include <klee/Expr/Expr.h>
 
 #include <nlohmann/json.hpp>
-
-#include <klee/Expr/Expr.h>
-#include <klee/ADT/Ref.h>
 
 
 class JsonPrinter {
 private:
-    nlohmann::json *jsonObject;
+    nlohmann::json jsonObject;
 
 public:
-    explicit JsonPrinter(nlohmann::json *json) {
-        jsonObject = json;
-    }
-
     void print(klee::Path &path);
 
     void printExpression(klee::ref<klee::Expr> expression, std::string *resultString);
@@ -30,6 +25,8 @@ public:
     void printBinaryExpression(std::string op, klee::ref<klee::Expr> expression, std::string *result);
 
     void escapeVariableName(std::string *variableName);
+
+    void writeToFile(std::string outputFile);
 };
 
 

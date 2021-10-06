@@ -2,101 +2,25 @@
 // Created by simon on 29.08.21.
 //
 
-#include <iomanip>
 #include <iostream>
 #include <fstream>
 #include <sys/stat.h>
 
-#include "JsonPrinter.h"
-#include "Runner.h"
-#include "../../lib/Core/FunctionEvaluation.h"
-
 #include <nlohmann/json.hpp>
 
-#include <klee/Support/ErrorHandling.h>
-#include <klee/Support/FileHandling.h>
-#include <klee/Support/ModuleUtil.h>
-#include <klee/Core/ADDExecutor.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/Verifier.h>
 
+#include <klee/Support/ErrorHandling.h>
+#include <klee/Support/FileHandling.h>
+#include <klee/Support/ModuleUtil.h>
+#include <klee/Core/ADDInterpreter.h>
+#include "klee/Core/FunctionEvaluation.h"
 
-class MyKleeHandler : public klee::InterpreterHandler {
-private:
-    JsonPrinter *jsonPrinter;
-
-    std::string outputDirectory;
-
-    std::unique_ptr<llvm::raw_fd_ostream> infoStream;
-
-    std::uint32_t pathsCompleted;
-    std::uint32_t pathsExplored;
-
-public:
-    MyKleeHandler(JsonPrinter *printer, std::string outputDirectory) {
-        jsonPrinter = printer;
-
-        this->outputDirectory = outputDirectory;
-
-        infoStream = this->openOutputFile("info");
-
-        pathsCompleted = 0;
-        pathsExplored = 0;
-    }
-
-    ~MyKleeHandler() override { infoStream->close(); }
-
-    llvm::raw_ostream &getInfoStream() const override { return *infoStream; }
-
-    std::string getOutputFilename(const std::string &filename) override {
-        std::string path = this->outputDirectory;
-        return path + "/klee/" + filename;
-    }
-
-    std::unique_ptr<llvm::raw_fd_ostream> openOutputFile(const std::string &filename) override {
-        std::string error;
-        std::string path = this->getOutputFilename(filename);
-
-        auto file = klee::klee_open_output_file(path, error);
-        if (!file) {
-            klee::klee_warning(
-                    "error opening file \"%s\".  KLEE may have run out of file "
-                    "descriptors: try to increase the maximum number of open file "
-                    "descriptors by using ulimit (%s).",
-                    path.c_str(), error.c_str()
-            );
-            return nullptr;
-        }
-
-        return file;
-    }
-
-    void incPathsCompleted() override { pathsCompleted++; }
-
-    void incPathsExplored(std::uint32_t num = 1) override {
-        pathsExplored += num;
-    }
-
-    void processTestCase(const klee::ExecutionState &state, const char *err,
-                         const char *suffix) override {
-        std::cout << "MyKleeHandler.processTestCase called, this should not happen in symbolic execution" << std::endl;
-        exit(EXIT_FAILURE);
-    }
-
-    void processPathExecution(klee::Path &path) override {
-        std::cout << "PATH FINISHED: ["
-                  << path.getPathRepr()
-                  << "] ["
-                  << (path.shouldExecuteFinishBlock() ? "execute last" : "dont execute last")
-                  << "]"
-                  << std::endl;
-
-        jsonPrinter->print(path);
-    }
-
-};
+#include "Runner.h"
+#include "JsonPrinter.h"
 
 
 Runner::Runner(int argc, char **argv, std::string outputDirectory) {
@@ -138,14 +62,7 @@ void Runner::init() {
 }
 
 void Runner::run() {
-    nlohmann::json outputJson;
-
-    auto *printer = new JsonPrinter(&outputJson);
-    // auto *handler = new MyKleeHandler(printer, this->outputDirectory);
-
-    // klee::Interpreter::InterpreterOptions interpreterOptions;
-    // klee::Interpreter *interpreter = klee::Interpreter::create(this->llvmContext, interpreterOptions, handler);
-    auto *executor = new klee::ADDExecutor(this->llvmContext, printer);
+    auto *executor = klee::ADDInterpreter::create(this->llvmContext);
 
     klee::Interpreter::ModuleOptions moduleOptions(
             KLEE_LIB_PATH,
@@ -161,11 +78,10 @@ void Runner::run() {
 
     // run paths
     klee::FunctionEvaluation functionEvaluation(function);
-    //interpreter->runFunctionAsSymbolic(&functionEvaluation);
     executor->runFunction(&functionEvaluation);
 
     // output results to out dir
-    this->outputPathResults(&outputJson);
+    this->outputPathResults(functionEvaluation);
 
     // call java lib to generate adds
     this->callJavaLib();
@@ -180,7 +96,6 @@ void Runner::run() {
     // delete interpreter;
     // delete handler;
     delete executor;
-    delete printer;
 }
 
 void Runner::parseArguments() {
@@ -202,13 +117,14 @@ void Runner::prepareFiles() {
     std::remove((this->outputDirectory + "/klee/run.stats-wal").c_str());
 }
 
-void Runner::outputPathResults(nlohmann::json *outputJson) {
-    std::ofstream outputFileStream;
-    outputFileStream.open(this->outputDirectory + "/out.json");
+void Runner::outputPathResults(klee::FunctionEvaluation &functionEvaluation) {
+    JsonPrinter printer;
 
-    outputFileStream << outputJson->dump(4);
+    for (auto &path : functionEvaluation.getPathList()) {
+        printer.print(path);
+    }
 
-    outputFileStream.close();
+    printer.writeToFile(this->outputDirectory + "/out.json");
 }
 
 void Runner::callJavaLib() {
@@ -396,6 +312,18 @@ llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressio
 
         llvm::Value *leftResult = this->generateLLVMCodeForExpressionTree(&leftChild, block, builder, variableMap);
         llvm::Value *rightResult = this->generateLLVMCodeForExpressionTree(&rightChild, block, builder, variableMap);
+
+        llvm::Type *leftType = leftResult->getType();
+        llvm::Type *rightType = rightResult->getType();
+
+        if (leftType != rightType) {
+            if (leftType->getIntegerBitWidth() < rightType->getIntegerBitWidth()) {
+                leftResult->mutateType(rightType);
+            }
+            else {
+                rightResult->mutateType(leftType);
+            }
+        }
 
         if (expressionOperator == "+") {
             return builder->CreateAdd(leftResult, rightResult);

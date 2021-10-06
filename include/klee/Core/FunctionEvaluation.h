@@ -8,18 +8,17 @@
 
 #include <map>
 
-#include "Path.h"
-#include "VariableStores.h"
-
 #include <llvm/IR/Type.h>
 #include <llvm/IR/Function.h>
+
+#include <klee/Core/Types.h>
+#include "klee/Core/Path.h"
 #include <klee/Expr/Expr.h>
 
 
 namespace klee {
 
     typedef std::vector<Path> PathList;
-
 
     class FunctionEvaluation {
     private:

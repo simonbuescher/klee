@@ -6,10 +6,10 @@
 #define KLEE_PATH_H
 
 
-#include "VariableStores.h"
-
 #include <llvm/IR/BasicBlock.h>
+
 #include <klee/Expr/Constraints.h>
+#include <klee/Core/Types.h>
 
 
 namespace klee {

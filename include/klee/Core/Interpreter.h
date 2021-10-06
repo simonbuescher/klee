@@ -14,10 +14,6 @@
 #include <set>
 #include <string>
 #include <vector>
-#include <llvm/IR/BasicBlock.h>
-#include "../../../lib/Core/ExecutionState.h"
-#include "../../../lib/Core/Path.h"
-#include "../../../lib/Core/FunctionEvaluation.h"
 
 
 struct KTest;
@@ -60,8 +56,6 @@ namespace klee {
         virtual void processTestCase(const ExecutionState &state,
                                      const char *err,
                                      const char *suffix) = 0;
-
-        virtual void processPathExecution(Path &path) = 0;
     };
 
     class Interpreter {
@@ -176,10 +170,6 @@ namespace klee {
 
         virtual void getCoveredLines(const ExecutionState &state,
                                      std::map<const std::string *, std::set<unsigned> > &res) = 0;
-
-
-        // Extension functions for symbolic optimizer
-        virtual void runFunctionAsSymbolic(FunctionEvaluation *functionEvaluation) = 0;
     };
 
 } // End klee namespace

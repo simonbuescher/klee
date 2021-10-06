@@ -2,7 +2,10 @@
 // Created by simon on 22.07.21.
 //
 
+#include <fstream>
+
 #include <nlohmann/json.hpp>
+
 #include "JsonPrinter.h"
 
 void JsonPrinter::print(klee::Path &path) {
@@ -39,7 +42,7 @@ void JsonPrinter::print(klee::Path &path) {
         targetCutpointName = std::to_string((long)path.back());
     }
 
-    *jsonObject += {
+    this->jsonObject += {
             {"start-cutpoint", startCutpointName},
             {"target-cutpoint", targetCutpointName},
             {"condition", conditionString},
@@ -69,16 +72,17 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
             printBinaryExpression("*", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::SDiv: {
+        case klee::Expr::Kind::SDiv:
+        case klee::Expr::Kind::UDiv: {
             printBinaryExpression("/", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::SRem: {
+        case klee::Expr::Kind::SRem:
+        case klee::Expr::Kind::URem: {
             printBinaryExpression("%", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::Eq: {
-            // todo sbuescher keep == 0
+        case klee::Expr::Kind::Eq:{
             auto *binaryExpression = llvm::dyn_cast<klee::BinaryExpr>(expression);
             if (binaryExpression->left->isZero()) {
                 std::string rightResult;
@@ -91,19 +95,23 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
             }
             break;
         }
-        case klee::Expr::Kind::Slt: {
+        case klee::Expr::Kind::Slt:
+        case klee::Expr::Kind::Ult: {
             printBinaryExpression("<", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::Sle: {
+        case klee::Expr::Kind::Sle:
+        case klee::Expr::Kind::Ule: {
             printBinaryExpression("<=", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::Sgt: {
+        case klee::Expr::Kind::Sgt:
+        case klee::Expr::Kind::Ugt: {
             printBinaryExpression(">", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::Sge: {
+        case klee::Expr::Kind::Sge:
+        case klee::Expr::Kind::Uge: {
             printBinaryExpression(">", expression, resultString);
             break;
         }
@@ -158,3 +166,11 @@ void JsonPrinter::escapeVariableName(std::string *variableName) {
     }
 }
 
+void JsonPrinter::writeToFile(std::string outputFile) {
+    std::ofstream outputFileStream;
+    outputFileStream.open(outputFile);
+
+    outputFileStream << this->jsonObject.dump(4);
+
+    outputFileStream.close();
+}
