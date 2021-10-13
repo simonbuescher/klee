@@ -76,25 +76,18 @@ void Runner::run() {
     llvm::Function *function = finalModule->getFunction(this->mainFunction);
 
 
-    // run paths
     klee::FunctionEvaluation functionEvaluation(function);
     executor->runFunction(&functionEvaluation);
 
-    // output results to out dir
     this->outputPathResults(functionEvaluation);
 
-    // call java lib to generate adds
     this->callJavaLib();
 
-    // read adds
     nlohmann::json addJson;
     this->readADDs(&addJson);
 
-    // generate llvm code
     this->generateLLVMCode(functionEvaluation, &addJson);
 
-    // delete interpreter;
-    // delete handler;
     delete executor;
 }
 
@@ -359,6 +352,10 @@ llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressio
             if (value[0] == 'a') {
                 return variableValue;
             } else {
+                // llvm::Type *loadType = variableValue->getType();
+                // if (loadType->isArrayTy()) {
+                //     loadType = loadType->getArrayElementType();
+                // }
                 return builder->CreateLoad(variableValue);
             }
         } else {

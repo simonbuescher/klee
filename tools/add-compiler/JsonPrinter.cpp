@@ -10,13 +10,19 @@
 
 void JsonPrinter::print(klee::Path &path) {
     klee::ConstraintSet constraints = path.getConstraints();
-    auto condition = *constraints.begin();
-    for (auto constraintIt = constraints.begin() + 1; constraintIt != constraints.end(); constraintIt++) {
-        condition = klee::AndExpr::create(condition, *constraintIt);
-    }
 
     std::string conditionString;
-    printExpression(condition, &conditionString);
+
+    if (constraints.empty()) {
+        conditionString = "true";
+    } else {
+        auto condition = *constraints.begin();
+        for (auto constraintIt = constraints.begin() + 1; constraintIt != constraints.end(); constraintIt++) {
+            condition = klee::AndExpr::create(condition, *constraintIt);
+        }
+        printExpression(condition, &conditionString);
+    }
+
 
     nlohmann::json parallelAssignmentsJson;
     for (std::pair<std::string, klee::ref<klee::Expr>> symbolicValue : path.getSymbolicValues()) {

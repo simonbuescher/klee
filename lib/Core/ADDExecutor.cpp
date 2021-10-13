@@ -181,14 +181,26 @@ namespace klee {
             if (ki->inst->getOpcode() == llvm::Instruction::Alloca) {
                 auto *allocaInst = cast<llvm::AllocaInst>(ki->inst);
 
-                unsigned elementSize = this->kleeModule->targetData->getTypeStoreSize(allocaInst->getAllocatedType());
+                llvm::Type *type = allocaInst->getAllocatedType();
+                unsigned count = 1;
 
-                ref<Expr> size = Expr::createPointer(elementSize);
-                if (allocaInst->isArrayAllocation()) {
-                    ref<Expr> count = this->eval(ki, 0, *state).value;
-                    count = Expr::createZExtToPointerWidth(count);
-                    size = MulExpr::create(size, count);
+                if (type->isArrayTy()) {
+                    count = type->getArrayNumElements();
+                    type = type->getArrayElementType();
                 }
+
+                unsigned elementSize = this->kleeModule->targetData->getTypeStoreSize(type);
+                ref<Expr> elementSizeExpr = Expr::createPointer(elementSize);
+                ref<Expr> countExpr = Expr::createPointer(count);
+
+                ref<Expr> size = MulExpr::create(elementSizeExpr, countExpr);
+                // ConstantExpr::create(count, Expr::Int32);
+                // this does not work like expected, but array allocations still work over the ArrayTy type
+                // if (allocaInst->isArrayAllocation()) {
+                //     ref<Expr> count = this->eval(ki, 0, *state).value;
+                //     count = Expr::createZExtToPointerWidth(count);
+                //     size = MulExpr::create(size, count);
+                // }
 
                 this->executeAlloc(*state, size, true, ki);
 
