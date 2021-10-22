@@ -90,7 +90,7 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
         }
         case klee::Expr::Kind::Eq:{
             auto *binaryExpression = llvm::dyn_cast<klee::BinaryExpr>(expression);
-            if (binaryExpression->left->isZero()) {
+            if (binaryExpression->left->isZero() && binaryExpression->left->getWidth() == 1) {
                 std::string rightResult;
                 printExpression(binaryExpression->right, &rightResult);
 

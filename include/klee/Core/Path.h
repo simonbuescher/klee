@@ -27,8 +27,6 @@ namespace klee {
     public:
         Path();
 
-        Path(Path const &path);
-
         void setExecuteFinishBlock(bool value);
 
         bool shouldExecuteFinishBlock();
@@ -49,9 +47,13 @@ namespace klee {
 
         llvm::BasicBlock *back();
 
+        int size();
+
         std::vector<llvm::BasicBlock *>::iterator begin();
 
         std::vector<llvm::BasicBlock *>::iterator end();
+
+        void copy(Path *result);
     };
 
 }

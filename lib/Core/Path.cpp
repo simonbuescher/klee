@@ -12,16 +12,6 @@ namespace klee {
 
     Path::Path()= default;
 
-    Path::Path(Path const &path) {
-        blocks = std::vector<llvm::BasicBlock *>(path.blocks);
-        executeFinishBlock = path.executeFinishBlock;
-
-        constraints = ConstraintSet(path.constraints);
-        symbolicValues = VariableExpressionMap(path.symbolicValues);
-
-        repr = path.repr;
-    }
-
     void Path::setExecuteFinishBlock(bool value) {
         executeFinishBlock = value;
     }
@@ -67,12 +57,26 @@ namespace klee {
         return blocks.back();
     }
 
+    int Path::size() {
+        return blocks.size();
+    }
+
     std::vector<llvm::BasicBlock *>::iterator Path::begin() {
         return blocks.begin();
     }
 
     std::vector<llvm::BasicBlock *>::iterator Path::end() {
         return blocks.end();
+    }
+
+    void Path::copy(Path *result) {
+        result->blocks = std::vector<llvm::BasicBlock *>(this->blocks);
+        result->executeFinishBlock = this->executeFinishBlock;
+
+        result->constraints = ConstraintSet(this->constraints);
+        result->symbolicValues = VariableExpressionMap(this->symbolicValues);
+
+        result->repr = std::string(this->repr);
     }
 
 }

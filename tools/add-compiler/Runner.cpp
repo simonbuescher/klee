@@ -69,12 +69,11 @@ void Runner::run() {
             this->mainFunction,
             "64_Debug+Asserts",
             false,
-            true,
-            true
+            false,
+            false
     );
     llvm::Module *finalModule = executor->setModule(this->loadedModules, moduleOptions);
     llvm::Function *function = finalModule->getFunction(this->mainFunction);
-
 
     klee::FunctionEvaluation functionEvaluation(function);
     executor->runFunction(&functionEvaluation);
@@ -100,14 +99,6 @@ void Runner::parseArguments() {
 
 void Runner::prepareFiles() {
     mkdir(this->outputDirectory.c_str(), 0777);
-    mkdir((this->outputDirectory + "/klee").c_str(), 0777);
-
-    std::remove((this->outputDirectory + "/klee/assembly.ll").c_str());
-    std::remove((this->outputDirectory + "/klee/info").c_str());
-    std::remove((this->outputDirectory + "/klee/run.istats").c_str());
-    std::remove((this->outputDirectory + "/klee/run.stats").c_str());
-    std::remove((this->outputDirectory + "/klee/run.stats-shm").c_str());
-    std::remove((this->outputDirectory + "/klee/run.stats-wal").c_str());
 }
 
 void Runner::outputPathResults(klee::FunctionEvaluation &functionEvaluation) {
@@ -275,6 +266,16 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::Ba
             nlohmann::json expressionJson = assignment["expression"];
 
             llvm::Value *result = this->generateLLVMCodeForExpressionTree(&expressionJson, block, builder, variableMap);
+
+            llvm::Type *expectedPointerType = (*variableMap)[targetVariableName]->getType();
+            if (!expectedPointerType->isPointerTy()) {
+                assert(false && "target variable is not pointer, can not create store instruction to concrete type");
+            }
+
+            if (result->getType() != expectedPointerType->getPointerElementType()) {
+                // result->mutateType(expectedPointerType->getPointerElementType());
+            }
+
             results[targetVariableName] = result;
         }
 
@@ -306,15 +307,11 @@ llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressio
         llvm::Value *leftResult = this->generateLLVMCodeForExpressionTree(&leftChild, block, builder, variableMap);
         llvm::Value *rightResult = this->generateLLVMCodeForExpressionTree(&rightChild, block, builder, variableMap);
 
-        llvm::Type *leftType = leftResult->getType();
-        llvm::Type *rightType = rightResult->getType();
-
-        if (leftType != rightType) {
-            if (leftType->getIntegerBitWidth() < rightType->getIntegerBitWidth()) {
-                leftResult->mutateType(rightType);
-            }
-            else {
-                rightResult->mutateType(leftType);
+        if (leftResult->getType() != rightResult->getType()) {
+            if (llvm::isa<llvm::Constant>(leftResult)) {
+                leftResult->mutateType(rightResult->getType());
+            } else if (llvm::isa<llvm::Constant>(rightResult)) {
+                rightResult->mutateType(leftResult->getType());
             }
         }
 
@@ -352,10 +349,6 @@ llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressio
             if (value[0] == 'a') {
                 return variableValue;
             } else {
-                // llvm::Type *loadType = variableValue->getType();
-                // if (loadType->isArrayTy()) {
-                //     loadType = loadType->getArrayElementType();
-                // }
                 return builder->CreateLoad(variableValue);
             }
         } else {

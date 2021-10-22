@@ -6,6 +6,7 @@
 
 #include <klee/Core/FunctionEvaluation.h>
 #include <klee/Core/Types.h>
+#include <list>
 
 
 namespace klee {
@@ -17,11 +18,6 @@ namespace klee {
     }
 
     void FunctionEvaluation::findVariableTypes() {
-        for (size_t i = 0; i < this->function->arg_size(); i++) {
-            std::string name = "arg" + std::to_string(i);
-            // this->variableTypeMap.setVariableType(name, this->function->getArg(i)->getType());
-        }
-
         int variableNumber = 0;
         for (llvm::BasicBlock &basicBlock : *function) {
             for (llvm::Instruction &instruction : basicBlock) {
@@ -36,42 +32,43 @@ namespace klee {
     }
 
     void FunctionEvaluation::findPaths() {
-        std::vector<Path> pathsToFinish;
+        std::vector<Path *> pathsToFinish;
         std::vector<llvm::BasicBlock *> cutpoints;
 
         llvm::BasicBlock &entryBlock = this->function->getEntryBlock();
 
-        Path startingPath;
-        startingPath.addBlock(&entryBlock);
+        Path *startingPath = new Path();
+        startingPath->addBlock(&entryBlock);
 
         pathsToFinish.push_back(startingPath);
         cutpoints.push_back(&entryBlock);
 
         while (!pathsToFinish.empty()) {
-            Path currentPath = pathsToFinish.front();
+            Path *currentPath = pathsToFinish.front();
             pathsToFinish.erase(pathsToFinish.begin());
 
-            llvm::BasicBlock *currentBlock = currentPath.back();
+            llvm::BasicBlock *currentBlock = currentPath->back();
 
             if (llvm::succ_empty(currentBlock)) {
-                currentPath.setExecuteFinishBlock(true);
-                this->pathList.push_back(currentPath);
+                currentPath->setExecuteFinishBlock(true);
+                this->pathList.push_back(*currentPath);
                 continue;
             }
 
-            std::vector<Path> newPathsToFinish;
+            std::vector<Path *> newPathsToFinish;
             for (auto successor : successors(currentBlock)) {
-                Path newPath = Path(currentPath);
+                Path *newPath = new Path();
+                currentPath->copy(newPath);
 
                 if (std::find(cutpoints.begin(), cutpoints.end(), successor) != cutpoints.end()) {
                     // if successor is a cutpoint, our path ends there
-                    newPath.addBlock(successor);
-                    newPath.setExecuteFinishBlock(false);
-                    this->pathList.push_back(newPath);
+                    newPath->addBlock(successor);
+                    newPath->setExecuteFinishBlock(false);
+                    this->pathList.push_back(*newPath);
                     continue;
                 }
 
-                if (newPath.containsBlock(successor)) {
+                if (newPath->containsBlock(successor)) {
                     // if successor is already in the path, this block has to be a cutpoint because there cannot be loops in
                     // a path. also we break out of of the successor iteration because we need to start new paths from this
                     // block
@@ -79,20 +76,35 @@ namespace klee {
 
                     newPathsToFinish.clear();
 
-                    Path newPathFromCutpoint;
-                    newPathFromCutpoint.addBlock(currentBlock);
+                    Path *newPathFromCutpoint = new Path();
+                    newPathFromCutpoint->addBlock(currentBlock);
                     newPathsToFinish.push_back(newPathFromCutpoint);
 
-                    newPath.setExecuteFinishBlock(false);
-                    this->pathList.push_back(newPath);
+                    newPath->setExecuteFinishBlock(false);
+                    this->pathList.push_back(*newPath);
+
+                    // we also need to terminate each path that currently ends in this block
+                    std::vector<Path *> removeList;
+                    for (Path *path : pathsToFinish) {
+                        if (path->back() == currentBlock) {
+                            removeList.push_back(path);
+                            path->setExecuteFinishBlock(false);
+                            this->pathList.push_back(*path);
+                        }
+                    }
+
+                    for (Path *path : removeList) {
+                        pathsToFinish.erase(std::find(pathsToFinish.begin(), pathsToFinish.end(), path));
+                    }
+
                     break;
                 }
 
-                newPath.addBlock(successor);
+                newPath->addBlock(successor);
                 newPathsToFinish.push_back(newPath);
             }
 
-            for (const Path &newPathToFinish : newPathsToFinish) {
+            for (Path *newPathToFinish : newPathsToFinish) {
                 pathsToFinish.push_back(newPathToFinish);
             }
         }

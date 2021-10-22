@@ -235,7 +235,7 @@ void KModule::instrument(const Interpreter::ModuleOptions &opts) {
   // optimize is seeing what is as close as possible to the final
   // module.
   legacy::PassManager pm;
-  pm.add(new RaiseAsmPass());
+  // pm.add(new RaiseAsmPass());
 
   // This pass will scalarize as much code as possible so that the Executor
   // does not need to handle operands of vector type for most instructions
@@ -243,14 +243,14 @@ void KModule::instrument(const Interpreter::ModuleOptions &opts) {
   //
   // NOTE: Must come before division/overshift checks because those passes
   // don't know how to handle vector instructions.
-  pm.add(createScalarizerPass());
+  // pm.add(createScalarizerPass());
 
   // This pass will replace atomic instructions with non-atomic operations
-  pm.add(createLowerAtomicPass());
-  if (opts.CheckDivZero) pm.add(new DivCheckPass());
-  if (opts.CheckOvershift) pm.add(new OvershiftCheckPass());
+  // pm.add(createLowerAtomicPass());
+  // if (opts.CheckDivZero) pm.add(new DivCheckPass());
+  // if (opts.CheckOvershift) pm.add(new OvershiftCheckPass());
 
-  pm.add(new IntrinsicCleanerPass(*targetData));
+  // pm.add(new IntrinsicCleanerPass(*targetData));
   pm.run(*module);
 }
 
@@ -285,7 +285,7 @@ void KModule::optimiseAndPrepare(
   // going to be unresolved. We really need to handle the intrinsics
   // directly I think?
   legacy::PassManager pm3;
-  pm3.add(createCFGSimplificationPass());
+  // pm3.add(createCFGSimplificationPass());
   switch(SwitchType) {
   case eSwitchTypeInternal: break;
   case eSwitchTypeSimple: pm3.add(new LowerSwitchPass()); break;
