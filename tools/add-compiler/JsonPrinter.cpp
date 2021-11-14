@@ -43,9 +43,12 @@ void JsonPrinter::print(klee::Path &path) {
         startCutpointName = std::to_string((long)path.front());
     }
 
-    std::string targetCutpointName = path.back()->getName();
-    if (targetCutpointName.empty()) {
-        targetCutpointName = std::to_string((long)path.back());
+    std::string targetCutpointName = "end";
+    if (path.size() > 1) {
+        targetCutpointName = path.back()->getName();
+        if (targetCutpointName.empty()) {
+            targetCutpointName = std::to_string((long)path.back());
+        }
     }
 
     this->jsonObject += {
@@ -63,7 +66,11 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
 
             uint64_t value = constExpr->getLimitedValue(UINT64_MAX);
 
-            *resultString = std::to_string(value);
+            if (expression->getWidth() == 1) {
+                *resultString = value == 0 ? "false" : "true";
+            } else {
+                *resultString = std::to_string(value);
+            }
             break;
         }
         case klee::Expr::Kind::Add: {
@@ -118,7 +125,7 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
         }
         case klee::Expr::Kind::Sge:
         case klee::Expr::Kind::Uge: {
-            printBinaryExpression(">", expression, resultString);
+            printBinaryExpression(">=", expression, resultString);
             break;
         }
         case klee::Expr::Kind::And: {
@@ -127,6 +134,15 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
         }
         case klee::Expr::Kind::Or: {
             printBinaryExpression("|", expression, resultString);
+            break;
+        }
+        case klee::Expr::Kind::LShr:
+        case klee::Expr::Kind::AShr: {
+            printBinaryExpression(">>", expression, resultString);
+            break;
+        }
+        case klee::Expr::Kind::Shl: {
+            printBinaryExpression("<<", expression, resultString);
             break;
         }
         case klee::Expr::Kind::Concat: {
@@ -145,6 +161,26 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
         case klee::Expr::Kind::CastKindFirst:
         case klee::Expr::Kind::CastKindLast: {
             printExpression(expression->getKid(0), resultString);
+            break;
+        }
+        case klee::Expr::Kind::Call: {
+            auto *callExpression = llvm::dyn_cast<klee::CallExpr>(expression);
+
+            std::string functionCall = "";
+            functionCall += callExpression->functionName.str();
+            functionCall += "(";
+
+            for (unsigned int i = 0; i < callExpression->getNumKids(); i++) {
+                if (i != 0) functionCall += ", ";
+
+                std::string argumentString;
+                printExpression(callExpression->getKid(i), &argumentString);
+                functionCall += argumentString;
+            }
+
+            functionCall += ")";
+
+            *resultString = functionCall;
             break;
         }
         default: {

@@ -164,6 +164,7 @@ void Expr::printKind(llvm::raw_ostream &os, Kind k) {
     X(Sle);
     X(Sgt);
     X(Sge);
+    X(Call);
 #undef X
   default:
     assert(0 && "invalid kind");
@@ -223,6 +224,7 @@ unsigned NotExpr::computeHash() {
   hashValue = expr->hash() * Expr::MAGIC_HASH_CONSTANT * Expr::Not;
   return hashValue;
 }
+
 
 ref<Expr> Expr::createFromKind(Kind k, std::vector<CreateArg> args) {
   unsigned numArgs = args.size();
@@ -732,6 +734,11 @@ ref<Expr> SExtExpr::create(const ref<Expr> &e, Width w) {
     return SExtExpr::alloc(e, w);
   }
 }
+
+ref<Expr> CallExpr::create(StringRef function, Width width, unsigned int numArgs, ref<Expr> *args) {
+    return CallExpr::alloc(function, width, numArgs, args);
+}
+
 
 /***/
 

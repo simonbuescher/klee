@@ -170,7 +170,10 @@ public:
     BinaryKindFirst=Add,
     BinaryKindLast=Sge,
     CmpKindFirst=Eq,
-    CmpKindLast=Sge
+    CmpKindLast=Sge,
+
+    // Function Call
+    Call
   };
 
   /// @brief Required by klee::ref-managed objects
@@ -1144,6 +1147,58 @@ public:
   ref<ConstantExpr> Neg();
   ref<ConstantExpr> Not();
 };
+
+
+// Function Call
+class CallExpr : public NonConstantExpr {
+    public:
+        static const Kind kind = Call;
+
+    public:
+        llvm::StringRef functionName;
+        const Width returnValueWidth;
+        unsigned int numKids;
+        std::vector<ref<Expr>> arguments;
+
+    public:
+        static ref<Expr> alloc(llvm::StringRef function, Width width, unsigned int numArgs, ref<Expr> *args) {
+            ref<Expr> call(new CallExpr(function, width, numArgs, args));
+            call->computeHash();
+            return call;
+        }
+
+        static ref<Expr> create(llvm::StringRef function, Width width, unsigned int numArgs, ref<Expr> *args);
+
+        Width getWidth() const { return returnValueWidth; }
+        Kind getKind() const { return Call; }
+
+        unsigned getNumKids() const { return numKids; }
+        ref<Expr> getKid(unsigned i) const { return i < numKids ? arguments[i] : 0; }
+
+        int compareContents(const Expr &b) const {
+            // todo maybe??
+            return 0;
+        }
+
+        ref<Expr> rebuild(ref<Expr> kids[]) const {
+            return create(functionName, returnValueWidth, numKids, kids);
+        }
+
+    private:
+        CallExpr(llvm::StringRef function, Width width, unsigned int numArgs, ref<Expr> *args) :
+            functionName(function), returnValueWidth(width), numKids(numArgs) {
+            for (unsigned int i = 0; i < numArgs; i++) {
+                arguments.push_back(args[i]);
+            }
+        }
+
+    public:
+        static bool classof(const Expr *E) {
+            return E->getKind() == Expr::Call;
+        }
+        static bool classof(const CallExpr *) { return true; }
+    };
+
 
 // Implementations
 

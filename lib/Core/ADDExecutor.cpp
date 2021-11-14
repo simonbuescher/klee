@@ -373,7 +373,7 @@ namespace klee {
             }
         }
 
-        assert(false && "error path");
+        assert(false && "symbolic index lookup in memory operation is not allowed");
 
         address = this->optimizer.optimizeExpr(address, true);
 

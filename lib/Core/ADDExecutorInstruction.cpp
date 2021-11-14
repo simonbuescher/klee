@@ -34,7 +34,7 @@ namespace klee {
                 // get local number of return value (ki->operators[0] should do)
                 int n = kInstruction->operands[0];
 
-                KInstruction *loadInstruction;
+                KInstruction *loadInstruction = nullptr;
                 for (unsigned i = 0; i < kFunction->numInstructions; i++) {
                     if ((int) kFunction->instructions[i]->dest == n) {
                         loadInstruction = kFunction->instructions[i];
@@ -42,12 +42,16 @@ namespace klee {
                     }
                 }
 
+                if (loadInstruction == nullptr) {
+                    assert(false && "could not find load instruction of return value");
+                }
+                
                 // get instruction of that number
                 llvm::Instruction *returnValueInstruction = loadInstruction->inst;
 
                 // if its not a load, assert(false) for now
                 if (returnValueInstruction->getOpcode() != llvm::Instruction::Load) {
-                    assert(false && "what should i do now?");
+                    assert(false && "return value is not its own variable");
                 }
 
                 // if its a load, get what value we are loading
@@ -150,7 +154,23 @@ namespace klee {
             }
             case llvm::Instruction::Invoke:
             case llvm::Instruction::Call: {
-                assert(false && "calls are currently not supported");
+                auto *callInstruction = cast<llvm::CallInst>(instruction);
+
+                llvm::StringRef functionName = callInstruction->getCalledFunction()->getName();
+
+                unsigned int numArgs = callInstruction->getNumArgOperands();
+                ref<Expr> arguments[numArgs];
+
+                for (unsigned i = 0; i < numArgs; i++) {
+                    arguments[i] = eval(kInstruction, i + 1, state).value;
+                }
+
+                llvm::Type *returnValueType = callInstruction->getType();
+                unsigned returnWidth = this->kleeModule->targetData->getTypeStoreSizeInBits(returnValueType);
+
+                ref<Expr> result = CallExpr::create(functionName, returnWidth, numArgs, arguments);
+                this->bindLocal(kInstruction, state, result);
+                break;
             }
             case llvm::Instruction::PHI: {
                 assert(false && "phi instructions are currently not supported");

@@ -47,6 +47,11 @@ void Runner::init() {
         exit(EXIT_FAILURE);
     }
 
+    std::unique_ptr<llvm::Module> &inputModule = this->loadedModules[0];
+    for (auto &function: inputModule->getFunctionList()) {
+        this->allFunctions[function.getName()] = &function;
+    }
+
     std::unique_ptr<llvm::Module> module(klee::linkModules(this->loadedModules, "", error));
     if (!module) {
         std::cout << "error loading program '"
@@ -59,62 +64,86 @@ void Runner::init() {
 
     // Push the module as the first entry
     this->loadedModules.emplace_back(std::move(module));
+
+    // create our output module
+    this->createLLVMModule();
 }
 
 void Runner::run() {
-    auto *executor = klee::ADDInterpreter::create(this->llvmContext);
+    // insert all function declarations into new module previous to code generation
+    for (auto nameFunctionPair : this->allFunctions) {
+        this->generatedModule->getOrInsertFunction(nameFunctionPair.first, nameFunctionPair.second->getFunctionType());
+    }
 
+    auto *executor = klee::ADDInterpreter::create(this->llvmContext);
     klee::Interpreter::ModuleOptions moduleOptions(
             KLEE_LIB_PATH,
-            this->mainFunction,
+            this->allFunctions.begin()->first,
             "64_Debug+Asserts",
             false,
             false,
             false
     );
     llvm::Module *finalModule = executor->setModule(this->loadedModules, moduleOptions);
-    llvm::Function *function = finalModule->getFunction(this->mainFunction);
 
-    klee::FunctionEvaluation functionEvaluation(function);
-    executor->runFunction(&functionEvaluation);
+    for (auto nameFunctionPair : this->allFunctions) {
+        llvm::Function *function = finalModule->getFunction(nameFunctionPair.first);
+        if (function->isDeclaration()) {
+            continue;
+        }
 
-    this->outputPathResults(functionEvaluation);
+        std::cout << "evaluating function \"" + nameFunctionPair.first.str() + "\" \n" << std::endl;
 
-    this->callJavaLib();
+        klee::FunctionEvaluation functionEvaluation(function);
+        executor->runFunction(&functionEvaluation);
 
-    nlohmann::json addJson;
-    this->readADDs(&addJson);
+        this->outputPathResults(functionEvaluation, nameFunctionPair.first);
 
-    this->generateLLVMCode(functionEvaluation, &addJson);
+        this->callJavaLib(nameFunctionPair.first);
+
+        nlohmann::json addJson;
+        this->readADDs(&addJson, nameFunctionPair.first);
+
+        this->generateLLVMCode(functionEvaluation, &addJson);
+    }
 
     delete executor;
+
+    std::error_code error;
+    llvm::raw_fd_ostream moduleOutputFile(
+            this->outputDirectory + "/generated-llvm.bc",
+            error
+    );
+
+    llvm::WriteBitcodeToFile(*this->generatedModule, moduleOutputFile);
+
+    moduleOutputFile.flush();
 }
 
 void Runner::parseArguments() {
-    assert(argc == 3 && "invalid arguments");
+    assert(argc == 2 && "invalid arguments");
 
     this->inputFile = this->argv[1];
-    this->mainFunction = this->argv[2];
 }
 
 void Runner::prepareFiles() {
     mkdir(this->outputDirectory.c_str(), 0777);
 }
 
-void Runner::outputPathResults(klee::FunctionEvaluation &functionEvaluation) {
+void Runner::outputPathResults(klee::FunctionEvaluation &functionEvaluation, llvm::StringRef functionName) {
     JsonPrinter printer;
 
     for (auto &path : functionEvaluation.getPathList()) {
         printer.print(path);
     }
 
-    printer.writeToFile(this->outputDirectory + "/out.json");
+    printer.writeToFile(this->outputDirectory + "/" + functionName.str() + ".symex.json");
 }
 
-void Runner::callJavaLib() {
+void Runner::callJavaLib(llvm::StringRef functionName) {
     char command[128];
-    sprintf(command, "java -jar path-to-add.jar -i %s/out.json -o %s/adds.json",
-            this->outputDirectory.c_str(), this->outputDirectory.c_str());
+    sprintf(command, "java -jar path-to-add.jar -i %s/%s.symex.json -o %s/%s.adds.json",
+            this->outputDirectory.c_str(), functionName.str().c_str(), this->outputDirectory.c_str(), functionName.str().c_str());
 
     FILE *commandOutput;
     commandOutput = popen(command, "r");
@@ -134,16 +163,20 @@ void Runner::callJavaLib() {
     } while (success != nullptr);
 }
 
-void Runner::readADDs(nlohmann::json *addJson) {
-    std::ifstream addsInputFile(this->outputDirectory + "/adds.json");
+void Runner::readADDs(nlohmann::json *addJson, llvm::StringRef functionName) {
+    std::ifstream addsInputFile(this->outputDirectory + "/" + functionName.str() + ".adds.json");
 
     addsInputFile >> *addJson;
 }
 
-void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nlohmann::json *addJson) {
-    llvm::Module module("generated-llvm", this->llvmContext);
 
-    llvm::FunctionCallee functionCallee = module.getOrInsertFunction(this->mainFunction,
+void Runner::createLLVMModule() {
+    this->generatedModule = new llvm::Module("generated-llvm", this->llvmContext);
+}
+
+
+void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nlohmann::json *addJson) {
+    llvm::FunctionCallee functionCallee = this->generatedModule->getOrInsertFunction(functionEvaluation.getFunction()->getName(),
                                                                      functionEvaluation.getFunction()->getFunctionType());
 
     auto *function = llvm::cast<llvm::Function>(functionCallee.getCallee());
@@ -182,30 +215,21 @@ void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nloh
                                                  &cutpointBlockMap);
     }
 
-    if (!this->verifyModule(module)) {
+    if (!this->verifyModule(*this->generatedModule)) {
         std::cout << "first verify module failed" << std::endl;
         exit(EXIT_FAILURE);
     }
 
     // this->optimizeFunction(function);
 
-    if (!this->verifyModule(module)) {
+    if (!this->verifyModule(*this->generatedModule)) {
         std::cout << "second verify module failed" << std::endl;
         exit(EXIT_FAILURE);
     }
-
-    std::error_code error;
-    llvm::raw_fd_ostream moduleOutputFile(
-            this->outputDirectory + "/generated-llvm.bc",
-            error
-    );
-
-    llvm::WriteBitcodeToFile(module, moduleOutputFile);
-
-    moduleOutputFile.flush();
 }
 
-void Runner::generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder,
+void Runner::generateLLVMCodePreparation(llvm::BasicBlock *block,
+                                         llvm::IRBuilder<> *blockBuilder,
                                          klee::FunctionEvaluation *functionEvaluation,
                                          llvm::Function *function,
                                          std::map<std::string, llvm::Value *> *variableMap,
@@ -219,10 +243,11 @@ void Runner::generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilde
         (*variableMap)[variableTypePair.first] = blockBuilder->CreateAlloca(variableTypePair.second);
     }
 
-    blockBuilder->CreateBr(cutpointBlockMap->begin()->second);
+    blockBuilder->CreateBr((*cutpointBlockMap)["entry"]);
 }
 
-void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::BasicBlock *block,
+void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson,
+                                                llvm::BasicBlock *block,
                                                 llvm::IRBuilder<> *builder, llvm::Function *function,
                                                 std::map<std::string, llvm::Value *> *variableMap,
                                                 std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap) {
@@ -294,51 +319,75 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::Ba
     }
 }
 
-llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressionTree, llvm::BasicBlock *block,
+llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressionTree,
+                                                       llvm::BasicBlock *block,
                                                        llvm::IRBuilder<> *builder,
                                                        std::map<std::string, llvm::Value *> *variableMap) {
     std::string treeString = expressionTree->dump(4);
 
     if (expressionTree->is_object()) {
-        nlohmann::json leftChild = (*expressionTree)["left-child"];
-        nlohmann::json rightChild = (*expressionTree)["right-child"];
-        std::string expressionOperator = (*expressionTree)["operator"];
+        std::string expressionType = (*expressionTree)["type"];
 
-        llvm::Value *leftResult = this->generateLLVMCodeForExpressionTree(&leftChild, block, builder, variableMap);
-        llvm::Value *rightResult = this->generateLLVMCodeForExpressionTree(&rightChild, block, builder, variableMap);
+        if (expressionType == "function-call") {
+            std::string functionName = (*expressionTree)["function-name"];
+            nlohmann::json argumentTrees = (*expressionTree)["function-arguments"];
 
-        if (leftResult->getType() != rightResult->getType()) {
-            if (llvm::isa<llvm::Constant>(leftResult)) {
-                leftResult->mutateType(rightResult->getType());
-            } else if (llvm::isa<llvm::Constant>(rightResult)) {
-                rightResult->mutateType(leftResult->getType());
+            std::vector<llvm::Value *> arguments;
+            for (auto argJson : argumentTrees) {
+                llvm::Value *argumentResult = this->generateLLVMCodeForExpressionTree(&argJson, block, builder, variableMap);
+                arguments.push_back(argumentResult);
             }
-        }
 
-        if (expressionOperator == "+") {
-            return builder->CreateAdd(leftResult, rightResult);
-        } else if (expressionOperator == "-") {
-            return builder->CreateSub(leftResult, rightResult);
-        } else if (expressionOperator == "*") {
-            return builder->CreateMul(leftResult, rightResult);
-        } else if (expressionOperator == "/") {
-            return builder->CreateSDiv(leftResult, rightResult);
-        } else if (expressionOperator == "%") {
-            return builder->CreateSRem(leftResult, rightResult);
-        } else if (expressionOperator == "&") {
-            return builder->CreateAnd(leftResult, rightResult);
-        } else if (expressionOperator == "|") {
-            return builder->CreateOr(leftResult, rightResult);
-        } else if (expressionOperator == "=") {
-            return builder->CreateICmpEQ(leftResult, rightResult);
-        } else if (expressionOperator == "<") {
-            return builder->CreateICmpSLT(leftResult, rightResult);
-        } else if (expressionOperator == "<=") {
-            return builder->CreateICmpSLE(leftResult, rightResult);
-        } else if (expressionOperator == ">") {
-            return builder->CreateICmpSGT(leftResult, rightResult);
-        } else if (expressionOperator == ">=") {
-            return builder->CreateICmpSGE(leftResult, rightResult);
+            llvm::Function *sourceFunction = this->allFunctions[functionName];
+            llvm::FunctionCallee calledFunction = this->generatedModule->getOrInsertFunction(functionName, sourceFunction->getFunctionType());
+            return builder->CreateCall(calledFunction, arguments);
+
+        } else {
+            std::string expressionOperator = expressionType;
+            nlohmann::json leftChild = (*expressionTree)["left-child"];
+            nlohmann::json rightChild = (*expressionTree)["right-child"];
+
+            llvm::Value *leftResult = this->generateLLVMCodeForExpressionTree(&leftChild, block, builder, variableMap);
+            llvm::Value *rightResult = this->generateLLVMCodeForExpressionTree(&rightChild, block, builder, variableMap);
+
+            if (leftResult->getType() != rightResult->getType()) {
+                if (llvm::isa<llvm::Constant>(leftResult)) {
+                    leftResult->mutateType(rightResult->getType());
+                } else if (llvm::isa<llvm::Constant>(rightResult)) {
+                    rightResult->mutateType(leftResult->getType());
+                }
+            }
+
+            if (expressionOperator == "+") {
+                return builder->CreateAdd(leftResult, rightResult);
+            } else if (expressionOperator == "-") {
+                return builder->CreateSub(leftResult, rightResult);
+            } else if (expressionOperator == "*") {
+                return builder->CreateMul(leftResult, rightResult);
+            } else if (expressionOperator == "/") {
+                return builder->CreateSDiv(leftResult, rightResult);
+            } else if (expressionOperator == "%") {
+                return builder->CreateSRem(leftResult, rightResult);
+            } else if (expressionOperator == "<<") {
+                return builder->CreateShl(leftResult, rightResult);
+            } else if (expressionOperator == ">>") {
+                return builder->CreateAShr(leftResult, rightResult);
+            } else if (expressionOperator == "&") {
+                return builder->CreateAnd(leftResult, rightResult);
+            } else if (expressionOperator == "|") {
+                return builder->CreateOr(leftResult, rightResult);
+            } else if (expressionOperator == "=") {
+                return builder->CreateICmpEQ(leftResult, rightResult);
+            } else if (expressionOperator == "<") {
+                return builder->CreateICmpSLT(leftResult, rightResult);
+            } else if (expressionOperator == "<=") {
+                return builder->CreateICmpSLE(leftResult, rightResult);
+            } else if (expressionOperator == ">") {
+                return builder->CreateICmpSGT(leftResult, rightResult);
+            } else if (expressionOperator == ">=") {
+                return builder->CreateICmpSGE(leftResult, rightResult);
+            }
+
         }
     } else {
         std::string value = expressionTree->get<std::string>();
@@ -352,8 +401,8 @@ llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressio
                 return builder->CreateLoad(variableValue);
             }
         } else {
-            long longValue = std::stol(value);
-            return llvm::ConstantInt::get(llvm::Type::getInt32Ty(this->llvmContext), longValue, true);
+            uint64_t longValue = std::stoul(value);
+            return llvm::ConstantInt::get(llvm::Type::getInt64Ty(this->llvmContext), longValue, true);
         }
     }
 
