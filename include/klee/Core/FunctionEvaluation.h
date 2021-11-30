@@ -18,7 +18,7 @@
 
 namespace klee {
 
-    typedef std::vector<Path> PathList;
+    typedef std::vector<Path *> PathList;
 
     class FunctionEvaluation {
     private:
@@ -62,6 +62,7 @@ namespace klee {
 
         void findPaths();
 
+        void extendPaths();
     };
 
 }

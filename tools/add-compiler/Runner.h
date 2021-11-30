@@ -54,8 +54,8 @@ private:
     void readADDs(nlohmann::json *addJson, llvm::StringRef functionName);
     void generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nlohmann::json *addJson);
     void generateLLVMCodePreparation(llvm::BasicBlock *block, llvm::IRBuilder<> *blockBuilder, klee::FunctionEvaluation *functionEvaluation, llvm::Function *function, std::map<std::string, llvm::Value *> *variableMap, std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap);
-    void generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::BasicBlock *block, llvm::IRBuilder<> *builder, llvm::Function *function, std::map<std::string, llvm::Value *> *variableMap, std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap);
-    llvm::Value * generateLLVMCodeForExpressionTree(nlohmann::json *expressionTree, llvm::BasicBlock *block, llvm::IRBuilder<> *builder, std::map<std::string, llvm::Value *> *variableMap);
+    void generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson, llvm::BasicBlock *block, llvm::IRBuilder<> *builder, llvm::Function *function, std::map<std::string, llvm::Value *> *variableMap, std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap, std::map<std::string, llvm::Value *> *expressionCache);
+    llvm::Value * generateLLVMCodeForExpressionTree(nlohmann::json *expressionTree, llvm::BasicBlock *block, llvm::IRBuilder<> *builder, std::map<std::string, llvm::Value *> *variableMap, std::map<std::string, llvm::Value *> *expressionCache);
     void optimizeFunction(llvm::Function *function);
     bool verifyModule(llvm::Module &module);
 };

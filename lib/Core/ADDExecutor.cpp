@@ -51,7 +51,7 @@ namespace klee {
         llvm::Function *function = functionEvaluation->getFunction();
         KFunction *kFunction = this->kleeModule->functionMap[function];
 
-        for (Path &path : functionEvaluation->getPathList()) {
+        for (Path *path : functionEvaluation->getPathList()) {
             auto *state = new ExecutionState(kFunction);
 
             this->initializeGlobals(*state);
@@ -62,8 +62,8 @@ namespace klee {
 
             // run path without allocas (if it has any)
             // at branches, fork into two states and pick the one on our path as the new current state
-            for (auto blockInPathIt = path.begin(); blockInPathIt != path.end(); blockInPathIt++) {
-                if ((blockInPathIt + 1) == path.end() && !path.shouldExecuteFinishBlock()) {
+            for (auto blockInPathIt = path->begin(); blockInPathIt != path->end(); blockInPathIt++) {
+                if ((blockInPathIt + 1) == path->end() && !path->shouldExecuteFinishBlock()) {
                     break;
                 }
 
@@ -79,13 +79,13 @@ namespace klee {
                 }
             }
 
-            path.setConstraints(state->constraints);
+            path->setConstraints(state->constraints);
             this->addSymbolicValuesToPath(*state, functionEvaluation, path);
 
             std::cout << "PATH FINISHED: ["
-                      << path.getPathRepr()
+                      << path->getPathRepr()
                       << "] ["
-                      << (path.shouldExecuteFinishBlock() ? "execute last" : "dont execute last")
+                      << (path->shouldExecuteFinishBlock() ? "execute last" : "dont execute last")
                       << "]"
                       << std::endl;
 
@@ -432,7 +432,7 @@ namespace klee {
 
     void ADDExecutor::addSymbolicValuesToPath(const ExecutionState &state,
                                               FunctionEvaluation *functionEvaluation,
-                                              Path &path) {
+                                              Path *path) {
         // we only have one stack frame because we do not allow subroutine calls
         StackFrame stackFrame = state.stack.back();
 
@@ -446,7 +446,7 @@ namespace klee {
             ref<Expr> offset = memoryObject->getOffsetExpr(memoryObject->getBaseExpr());
             ref<Expr> result = objectPair.second->read(offset, this->getWidthForLLVMType(variableType));
 
-            path.getSymbolicValues()[variableName] = result;
+            path->getSymbolicValues()[variableName] = result;
         }
     }
 

@@ -18,7 +18,7 @@ private:
     nlohmann::json jsonObject;
 
 public:
-    void print(klee::Path &path);
+    void print(klee::Path *path);
 
     void printExpression(klee::ref<klee::Expr> expression, std::string *resultString);
 

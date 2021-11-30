@@ -133,7 +133,7 @@ void Runner::prepareFiles() {
 void Runner::outputPathResults(klee::FunctionEvaluation &functionEvaluation, llvm::StringRef functionName) {
     JsonPrinter printer;
 
-    for (auto &path : functionEvaluation.getPathList()) {
+    for (auto *path : functionEvaluation.getPathList()) {
         printer.print(path);
     }
 
@@ -211,8 +211,10 @@ void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nloh
         llvm::BasicBlock *block = cutpointBlockMap[cutpointName];
         llvm::IRBuilder<> addBlockBuilder(block);
 
+        std::map<std::string, llvm::Value *> expressionCache;
+
         this->generateLLVMCodeForDecisionDiagram(&decisionDiagram, block, &addBlockBuilder, function, &variableMap,
-                                                 &cutpointBlockMap);
+                                                 &cutpointBlockMap, &expressionCache);
     }
 
     if (!this->verifyModule(*this->generatedModule)) {
@@ -243,14 +245,20 @@ void Runner::generateLLVMCodePreparation(llvm::BasicBlock *block,
         (*variableMap)[variableTypePair.first] = blockBuilder->CreateAlloca(variableTypePair.second);
     }
 
-    blockBuilder->CreateBr((*cutpointBlockMap)["entry"]);
+    llvm::BasicBlock &originalFrontBasicBlock = functionEvaluation->getFunction()->front();
+    std::string startCutpointName = originalFrontBasicBlock.getName();
+    if (startCutpointName.empty()) {
+        startCutpointName = std::to_string((long)&originalFrontBasicBlock);
+    }
+    blockBuilder->CreateBr((*cutpointBlockMap)[startCutpointName]);
 }
 
 void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson,
                                                 llvm::BasicBlock *block,
                                                 llvm::IRBuilder<> *builder, llvm::Function *function,
                                                 std::map<std::string, llvm::Value *> *variableMap,
-                                                std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap) {
+                                                std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap,
+                                                std::map<std::string, llvm::Value *> *expressionCache) {
     if (ddJson->contains("condition")) {
         nlohmann::json conditionJson = (*ddJson)["condition"];
         nlohmann::json trueChildJson = (*ddJson)["true-child"];
@@ -258,7 +266,7 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson,
 
         // create comparison
         llvm::Value *compareResult = this->generateLLVMCodeForExpressionTree(&conditionJson, block, builder,
-                                                                             variableMap);
+                                                                             variableMap, expressionCache);
 
         // create true basic block and build llvm code
         llvm::BasicBlock *trueBlock = llvm::BasicBlock::Create(this->llvmContext,
@@ -273,12 +281,14 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson,
 
 
         llvm::IRBuilder<> trueBlockBuilder(trueBlock);
+        std::map<std::string, llvm::Value *> trueExpressionCache(*expressionCache);
         this->generateLLVMCodeForDecisionDiagram(&trueChildJson, trueBlock, &trueBlockBuilder, function, variableMap,
-                                                 cutpointBlockMap);
+                                                 cutpointBlockMap, &trueExpressionCache);
 
         llvm::IRBuilder<> falseBlockBuilder(falseBlock);
+        std::map<std::string, llvm::Value *> falseExpressionCache(*expressionCache);
         this->generateLLVMCodeForDecisionDiagram(&falseChildJson, falseBlock, &falseBlockBuilder, function, variableMap,
-                                                 cutpointBlockMap);
+                                                 cutpointBlockMap, &falseExpressionCache);
 
     } else {
         std::string targetCutpointName = (*ddJson)["target-cutpoint"];
@@ -290,15 +300,16 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson,
             std::string targetVariableName = assignment["variable"];
             nlohmann::json expressionJson = assignment["expression"];
 
-            llvm::Value *result = this->generateLLVMCodeForExpressionTree(&expressionJson, block, builder, variableMap);
+            if (targetVariableName == expressionJson) {
+                std::cout << "SKIPPED " << targetVariableName << " = " << expressionJson << " IN BB " << block->getName().str() << std::endl;
+                continue;
+            }
+
+            llvm::Value *result = this->generateLLVMCodeForExpressionTree(&expressionJson, block, builder, variableMap, expressionCache);
 
             llvm::Type *expectedPointerType = (*variableMap)[targetVariableName]->getType();
             if (!expectedPointerType->isPointerTy()) {
                 assert(false && "target variable is not pointer, can not create store instruction to concrete type");
-            }
-
-            if (result->getType() != expectedPointerType->getPointerElementType()) {
-                // result->mutateType(expectedPointerType->getPointerElementType());
             }
 
             results[targetVariableName] = result;
@@ -322,9 +333,16 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson,
 llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressionTree,
                                                        llvm::BasicBlock *block,
                                                        llvm::IRBuilder<> *builder,
-                                                       std::map<std::string, llvm::Value *> *variableMap) {
-    std::string treeString = expressionTree->dump(4);
+                                                       std::map<std::string, llvm::Value *> *variableMap,
+                                                       std::map<std::string, llvm::Value *> *expressionCache) {
+    std::string treeString = expressionTree->dump();
 
+    if (expressionCache->find(treeString) != expressionCache->end()) {
+        std::cout << "CACHE HIT ON '" << treeString << "' IN BB '" << block->getName().str() << "'" << std::endl;
+        return (*expressionCache)[treeString];
+    }
+
+    llvm::Value *result = nullptr;
     if (expressionTree->is_object()) {
         std::string expressionType = (*expressionTree)["type"];
 
@@ -334,21 +352,21 @@ llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressio
 
             std::vector<llvm::Value *> arguments;
             for (auto argJson : argumentTrees) {
-                llvm::Value *argumentResult = this->generateLLVMCodeForExpressionTree(&argJson, block, builder, variableMap);
+                llvm::Value *argumentResult = this->generateLLVMCodeForExpressionTree(&argJson, block, builder, variableMap, expressionCache);
                 arguments.push_back(argumentResult);
             }
 
             llvm::Function *sourceFunction = this->allFunctions[functionName];
             llvm::FunctionCallee calledFunction = this->generatedModule->getOrInsertFunction(functionName, sourceFunction->getFunctionType());
-            return builder->CreateCall(calledFunction, arguments);
+            result = builder->CreateCall(calledFunction, arguments);
 
         } else {
             std::string expressionOperator = expressionType;
             nlohmann::json leftChild = (*expressionTree)["left-child"];
             nlohmann::json rightChild = (*expressionTree)["right-child"];
 
-            llvm::Value *leftResult = this->generateLLVMCodeForExpressionTree(&leftChild, block, builder, variableMap);
-            llvm::Value *rightResult = this->generateLLVMCodeForExpressionTree(&rightChild, block, builder, variableMap);
+            llvm::Value *leftResult = this->generateLLVMCodeForExpressionTree(&leftChild, block, builder, variableMap, expressionCache);
+            llvm::Value *rightResult = this->generateLLVMCodeForExpressionTree(&rightChild, block, builder, variableMap, expressionCache);
 
             if (leftResult->getType() != rightResult->getType()) {
                 if (llvm::isa<llvm::Constant>(leftResult)) {
@@ -359,33 +377,33 @@ llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressio
             }
 
             if (expressionOperator == "+") {
-                return builder->CreateAdd(leftResult, rightResult);
+                result = builder->CreateAdd(leftResult, rightResult);
             } else if (expressionOperator == "-") {
-                return builder->CreateSub(leftResult, rightResult);
+                result = builder->CreateSub(leftResult, rightResult);
             } else if (expressionOperator == "*") {
-                return builder->CreateMul(leftResult, rightResult);
+                result = builder->CreateMul(leftResult, rightResult);
             } else if (expressionOperator == "/") {
-                return builder->CreateSDiv(leftResult, rightResult);
+                result = builder->CreateSDiv(leftResult, rightResult);
             } else if (expressionOperator == "%") {
-                return builder->CreateSRem(leftResult, rightResult);
+                result = builder->CreateSRem(leftResult, rightResult);
             } else if (expressionOperator == "<<") {
-                return builder->CreateShl(leftResult, rightResult);
+                result = builder->CreateShl(leftResult, rightResult);
             } else if (expressionOperator == ">>") {
-                return builder->CreateAShr(leftResult, rightResult);
+                result = builder->CreateAShr(leftResult, rightResult);
             } else if (expressionOperator == "&") {
-                return builder->CreateAnd(leftResult, rightResult);
+                result = builder->CreateAnd(leftResult, rightResult);
             } else if (expressionOperator == "|") {
-                return builder->CreateOr(leftResult, rightResult);
+                result = builder->CreateOr(leftResult, rightResult);
             } else if (expressionOperator == "=") {
-                return builder->CreateICmpEQ(leftResult, rightResult);
+                result = builder->CreateICmpEQ(leftResult, rightResult);
             } else if (expressionOperator == "<") {
-                return builder->CreateICmpSLT(leftResult, rightResult);
+                result = builder->CreateICmpSLT(leftResult, rightResult);
             } else if (expressionOperator == "<=") {
-                return builder->CreateICmpSLE(leftResult, rightResult);
+                result = builder->CreateICmpSLE(leftResult, rightResult);
             } else if (expressionOperator == ">") {
-                return builder->CreateICmpSGT(leftResult, rightResult);
+                result = builder->CreateICmpSGT(leftResult, rightResult);
             } else if (expressionOperator == ">=") {
-                return builder->CreateICmpSGE(leftResult, rightResult);
+                result = builder->CreateICmpSGE(leftResult, rightResult);
             }
 
         }
@@ -396,20 +414,25 @@ llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressio
             llvm::Value *variableValue = (*variableMap)[expressionTree->get<std::string>()];
 
             if (value[0] == 'a') {
-                return variableValue;
+                result = variableValue;
             } else {
-                return builder->CreateLoad(variableValue);
+                result = builder->CreateLoad(variableValue);
             }
         } else {
             uint64_t longValue = std::stoul(value);
+            // immediately return here so we dont cache constants, as that does not make sense
             return llvm::ConstantInt::get(llvm::Type::getInt64Ty(this->llvmContext), longValue, true);
         }
     }
 
-    std::cout << "unknown json value:" << std::endl;
-    std::cout << expressionTree->dump(4);
+    if (result == nullptr) {
+        std::cout << "unknown json value:" << std::endl;
+        std::cout << treeString;
+        exit(EXIT_FAILURE);
+    }
 
-    exit(EXIT_FAILURE);
+    (*expressionCache)[treeString] = result;
+    return result;
 }
 
 

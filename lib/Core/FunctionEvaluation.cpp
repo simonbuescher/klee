@@ -15,6 +15,7 @@ namespace klee {
 
         this->findVariableTypes();
         this->findPaths();
+        // this->extendPaths();
     }
 
     void FunctionEvaluation::findVariableTypes() {
@@ -51,7 +52,7 @@ namespace klee {
 
             if (llvm::succ_empty(currentBlock)) {
                 currentPath->setExecuteFinishBlock(true);
-                this->pathList.push_back(*currentPath);
+                this->pathList.push_back(currentPath);
                 continue;
             }
 
@@ -64,7 +65,7 @@ namespace klee {
                     // if successor is a cutpoint, our path ends there
                     newPath->addBlock(successor);
                     newPath->setExecuteFinishBlock(false);
-                    this->pathList.push_back(*newPath);
+                    this->pathList.push_back(newPath);
                     continue;
                 }
 
@@ -81,7 +82,7 @@ namespace klee {
                     newPathsToFinish.push_back(newPathFromCutpoint);
 
                     newPath->setExecuteFinishBlock(false);
-                    this->pathList.push_back(*newPath);
+                    this->pathList.push_back(newPath);
 
                     // we also need to terminate each path that currently ends in this block
                     std::vector<Path *> removeList;
@@ -89,7 +90,7 @@ namespace klee {
                         if (path->back() == currentBlock) {
                             removeList.push_back(path);
                             path->setExecuteFinishBlock(false);
-                            this->pathList.push_back(*path);
+                            this->pathList.push_back(path);
                         }
                     }
 
@@ -106,6 +107,43 @@ namespace klee {
 
             for (Path *newPathToFinish : newPathsToFinish) {
                 pathsToFinish.push_back(newPathToFinish);
+            }
+        }
+    }
+
+    void FunctionEvaluation::extendPaths() {
+        std::vector<Path *> originalPaths(this->pathList);
+
+        for (int i = 0; i < 8; i++) {
+            std::vector<Path *> newPaths;
+            std::vector<Path *> removePaths;
+
+            for (auto *path : this->pathList) {
+                if (path->front() == path->back() && path->size() > 1) {
+                    for (auto *other : originalPaths) {
+                        if (other->front() == path->back()) {
+                            Path *newPath = new Path();
+                            for (auto &block : *path) {
+                                newPath->addBlock(block);
+                            }
+                            for (auto blockIt = ++other->begin(); blockIt != other->end(); blockIt++) {
+                                newPath->addBlock(*blockIt);
+                            }
+
+                            newPaths.push_back(newPath);
+                        }
+                    }
+                    removePaths.push_back(path);
+                }
+            }
+
+            for (auto *path : removePaths) {
+                this->pathList.erase(std::remove(this->pathList.begin(), this->pathList.end(), path),
+                                     this->pathList.end());
+            }
+
+            for (auto *path : newPaths) {
+                this->pathList.push_back(path);
             }
         }
     }

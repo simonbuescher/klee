@@ -8,8 +8,8 @@
 
 #include "JsonPrinter.h"
 
-void JsonPrinter::print(klee::Path &path) {
-    klee::ConstraintSet constraints = path.getConstraints();
+void JsonPrinter::print(klee::Path *path) {
+    klee::ConstraintSet constraints = path->getConstraints();
 
     std::string conditionString;
 
@@ -25,7 +25,7 @@ void JsonPrinter::print(klee::Path &path) {
 
 
     nlohmann::json parallelAssignmentsJson;
-    for (std::pair<std::string, klee::ref<klee::Expr>> symbolicValue : path.getSymbolicValues()) {
+    for (std::pair<std::string, klee::ref<klee::Expr>> symbolicValue : path->getSymbolicValues()) {
         std::string expressionString;
         printExpression(symbolicValue.second, &expressionString);
 
@@ -38,16 +38,16 @@ void JsonPrinter::print(klee::Path &path) {
         };
     }
 
-    std::string startCutpointName = path.front()->getName();
+    std::string startCutpointName = path->front()->getName();
     if (startCutpointName.empty()) {
-        startCutpointName = std::to_string((long)path.front());
+        startCutpointName = std::to_string((long)path->front());
     }
 
     std::string targetCutpointName = "end";
-    if (path.size() > 1) {
-        targetCutpointName = path.back()->getName();
+    if (path->size() > 1) {
+        targetCutpointName = path->back()->getName();
         if (targetCutpointName.empty()) {
-            targetCutpointName = std::to_string((long)path.back());
+            targetCutpointName = std::to_string((long)path->back());
         }
     }
 

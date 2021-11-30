@@ -166,7 +166,7 @@ namespace klee {
 
         void transferToBasicBlock(llvm::BasicBlock *dst, llvm::BasicBlock *src, ExecutionState &state);
 
-        void addSymbolicValuesToPath(const ExecutionState &state, FunctionEvaluation *functionEvaluation, Path &path);
+        void addSymbolicValuesToPath(const ExecutionState &state, FunctionEvaluation *functionEvaluation, Path *path);
     };
 }
 
