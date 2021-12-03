@@ -259,75 +259,7 @@ void Runner::generateLLVMCodeForDecisionDiagram(nlohmann::json *ddJson,
                                                 std::map<std::string, llvm::Value *> *variableMap,
                                                 std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap,
                                                 std::map<std::string, llvm::Value *> *expressionCache) {
-    if (ddJson->contains("condition")) {
-        nlohmann::json conditionJson = (*ddJson)["condition"];
-        nlohmann::json trueChildJson = (*ddJson)["true-child"];
-        nlohmann::json falseChildJson = (*ddJson)["false-child"];
 
-        // create comparison
-        llvm::Value *compareResult = this->generateLLVMCodeForExpressionTree(&conditionJson, block, builder,
-                                                                             variableMap, expressionCache);
-
-        // create true basic block and build llvm code
-        llvm::BasicBlock *trueBlock = llvm::BasicBlock::Create(this->llvmContext,
-                                                               block->getName() + ".then", function);
-
-        // create false basic block and build llvm code
-        llvm::BasicBlock *falseBlock = llvm::BasicBlock::Create(this->llvmContext,
-                                                                block->getName() + ".else", function);
-
-        // create branch statement to true and false blocks
-        builder->CreateCondBr(compareResult, trueBlock, falseBlock);
-
-
-        llvm::IRBuilder<> trueBlockBuilder(trueBlock);
-        std::map<std::string, llvm::Value *> trueExpressionCache(*expressionCache);
-        this->generateLLVMCodeForDecisionDiagram(&trueChildJson, trueBlock, &trueBlockBuilder, function, variableMap,
-                                                 cutpointBlockMap, &trueExpressionCache);
-
-        llvm::IRBuilder<> falseBlockBuilder(falseBlock);
-        std::map<std::string, llvm::Value *> falseExpressionCache(*expressionCache);
-        this->generateLLVMCodeForDecisionDiagram(&falseChildJson, falseBlock, &falseBlockBuilder, function, variableMap,
-                                                 cutpointBlockMap, &falseExpressionCache);
-
-    } else {
-        std::string targetCutpointName = (*ddJson)["target-cutpoint"];
-        nlohmann::json parallelAssignment = (*ddJson)["parallel-assignments"];
-
-        std::map<std::string, llvm::Value *> results;
-        // calculations for variables
-        for (nlohmann::json assignment : parallelAssignment) {
-            std::string targetVariableName = assignment["variable"];
-            nlohmann::json expressionJson = assignment["expression"];
-
-            if (targetVariableName == expressionJson) {
-                std::cout << "SKIPPED " << targetVariableName << " = " << expressionJson << " IN BB " << block->getName().str() << std::endl;
-                continue;
-            }
-
-            llvm::Value *result = this->generateLLVMCodeForExpressionTree(&expressionJson, block, builder, variableMap, expressionCache);
-
-            llvm::Type *expectedPointerType = (*variableMap)[targetVariableName]->getType();
-            if (!expectedPointerType->isPointerTy()) {
-                assert(false && "target variable is not pointer, can not create store instruction to concrete type");
-            }
-
-            results[targetVariableName] = result;
-        }
-
-        for (std::pair<std::string, llvm::Value *> resultPair : results) {
-            builder->CreateStore(resultPair.second, (*variableMap)[resultPair.first]);
-        }
-
-        llvm::BasicBlock *targetCutpoint;
-        if (cutpointBlockMap->find(targetCutpointName) != cutpointBlockMap->end()) {
-            targetCutpoint = (*cutpointBlockMap)[targetCutpointName];
-        } else {
-            targetCutpoint = (*cutpointBlockMap)["end"];
-        }
-
-        builder->CreateBr(targetCutpoint);
-    }
 }
 
 llvm::Value *Runner::generateLLVMCodeForExpressionTree(nlohmann::json *expressionTree,
