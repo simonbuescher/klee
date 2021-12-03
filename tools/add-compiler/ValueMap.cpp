@@ -14,4 +14,5 @@ void ValueMap::store(const std::string &key, llvm::Value *value) {
 
 llvm::Value *ValueMap::get(const std::string &key) {
     return this->cacheMap[key];
+
 }

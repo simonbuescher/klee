@@ -21,15 +21,28 @@ private:
     llvm::BasicBlock *block;
     llvm::IRBuilder<> *irBuilder;
 
+    ValueMap *cutpointBlocks;
     ValueMap *variables;
     ValueMap *expressionCache;
 
 public:
-    ADDCodeGeneratorOptions(llvm::LLVMContext *context, llvm::Module *module, llvm::Function *function,
-                            llvm::BasicBlock *block, llvm::IRBuilder<> *irBuilder, ValueMap *variables,
-                            ValueMap *expressionCache) : context(context), module(module), function(function),
-                                                         block(block), irBuilder(irBuilder), variables(variables),
-                                                         expressionCache(expressionCache) {}
+    ADDCodeGeneratorOptions(
+            llvm::LLVMContext *context,
+            llvm::Module *module,
+            llvm::Function *function,
+            llvm::BasicBlock *block,
+            llvm::IRBuilder<> *irBuilder,
+            ValueMap *cutpointBlocks,
+            ValueMap *variables,
+            ValueMap *expressionCache
+    ) :
+            context(context),
+            module(module),
+            function(function), block(block),
+            irBuilder(irBuilder),
+            cutpointBlocks(cutpointBlocks),
+            variables(variables),
+            expressionCache(expressionCache) {}
 
     llvm::LLVMContext *getContext() { return this->context; }
 
@@ -40,6 +53,8 @@ public:
     llvm::BasicBlock *getBlock() { return this->block; }
 
     llvm::IRBuilder<> *getBuilder() { return this->irBuilder; }
+
+    ValueMap *getCutpointBlocks() { return this->cutpointBlocks; }
 
     ValueMap *getVariables() { return this->variables; }
 

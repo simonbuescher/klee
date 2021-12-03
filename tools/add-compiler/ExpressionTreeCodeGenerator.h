@@ -56,10 +56,9 @@ public:
     ExpressionTreeCodeGenerator(
             nlohmann::json *expressionTree,
             ExpressionTreeCodeGeneratorOptions *options
-    ) {
-        this->expressionTree = expressionTree;
-        this->options = options;
-    }
+    ) :
+            expressionTree(expressionTree),
+            options(options) {}
 
     llvm::Value *generate();
 

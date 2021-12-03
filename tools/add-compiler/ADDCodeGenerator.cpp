@@ -16,43 +16,43 @@ void ADDCodeGenerator::generate() {
 }
 
 void ADDCodeGenerator::generateForParallelAssignment() {
+    llvm::IRBuilder<> *builder = this->options->getBuilder();
+    ValueMap *cutpointBlocks = this->options->getCutpointBlocks();
+    ValueMap *variables = this->options->getVariables();
+
     std::string targetCutpointName = this->getADDVariable("target-cutpoint");
     nlohmann::json parallelAssignment = this->getADDVariable("parallel-assignments");
 
-    std::map<std::string, llvm::Value *> results;
+    ValueMap results;
     // calculations for variables
     for (nlohmann::json assignment : parallelAssignment) {
         std::string targetVariableName = assignment["variable"];
         nlohmann::json expressionJson = assignment["expression"];
 
         if (targetVariableName == expressionJson) {
-            std::cout << "SKIPPED " << targetVariableName << " = " << expressionJson << " IN BB "
-                      << block->getName().str() << std::endl;
+            // skip self assignments
             continue;
         }
 
-        llvm::Value *result = this->generateLLVMCodeForExpressionTree(&expressionJson, block, builder, variableMap,
-                                                                      expressionCache);
+        ExpressionTreeCodeGeneratorOptions *generatorOptions = this->createExpressionGeneratorOptions();
+        ExpressionTreeCodeGenerator generator(&expressionJson, generatorOptions);
+        llvm::Value *result = generator.generate();
+        delete generatorOptions;
 
-        llvm::Type *expectedPointerType = (*variableMap)[targetVariableName]->getType();
+        llvm::Type *expectedPointerType = variables->get(targetVariableName)->getType();
         if (!expectedPointerType->isPointerTy()) {
             assert(false && "target variable is not pointer, can not create store instruction to concrete type");
         }
 
-        results[targetVariableName] = result;
+        results.store(targetVariableName, result);
     }
 
-    for (std::pair<std::string, llvm::Value *> resultPair : results) {
-        builder->CreateStore(resultPair.second, (*variableMap)[resultPair.first]);
+    for (const auto& resultPair : results) {
+        builder->CreateStore(resultPair.second, variables->get(resultPair.first));
     }
 
-    llvm::BasicBlock *targetCutpoint;
-    if (cutpointBlockMap->find(targetCutpointName) != cutpointBlockMap->end()) {
-        targetCutpoint = (*cutpointBlockMap)[targetCutpointName];
-    } else {
-        targetCutpoint = (*cutpointBlockMap)["end"];
-    }
-
+    std::string cutpointName = cutpointBlocks->contains(targetCutpointName) ? targetCutpointName : "end";
+    auto *targetCutpoint = llvm::cast<llvm::BasicBlock>(cutpointBlocks->get(cutpointName));
     builder->CreateBr(targetCutpoint);
 }
 
@@ -118,6 +118,7 @@ ADDCodeGeneratorOptions *ADDCodeGenerator::createADDGeneratorOptions(
             this->options->getFunction(),
             block,
             builder,
+            this->options->getCutpointBlocks(),
             this->options->getVariables(),
             expressionCache
     );

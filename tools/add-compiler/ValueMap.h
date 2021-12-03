@@ -20,6 +20,10 @@ public:
     void store(const std::string &key, llvm::Value *value);
 
     llvm::Value *get(const std::string &key);
+
+    std::map<std::string, llvm::Value *>::iterator begin() { return this->cacheMap.begin(); }
+
+    std::map<std::string, llvm::Value *>::iterator end() { return this->cacheMap.end(); }
 };
 
 
