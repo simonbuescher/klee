@@ -21,7 +21,6 @@
 
 #include "Runner.h"
 #include "JsonPrinter.h"
-#include "ADDCodeGenerator.h"
 
 
 Runner::Runner(int argc, char **argv, std::string outputDirectory) {
@@ -30,7 +29,9 @@ Runner::Runner(int argc, char **argv, std::string outputDirectory) {
     this->outputDirectory = outputDirectory;
 }
 
-Runner::~Runner() = default;
+Runner::~Runner() {
+    delete this->codeGenerator;
+};
 
 void Runner::init() {
     this->parseArguments();
@@ -49,9 +50,7 @@ void Runner::init() {
     }
 
     std::unique_ptr<llvm::Module> &inputModule = this->loadedModules[0];
-    for (auto &function: inputModule->getFunctionList()) {
-        this->allFunctions[function.getName()] = &function;
-    }
+    this->functions = &inputModule->getFunctionList();
 
     std::unique_ptr<llvm::Module> module(klee::linkModules(this->loadedModules, "", error));
     if (!module) {
@@ -66,20 +65,20 @@ void Runner::init() {
     // Push the module as the first entry
     this->loadedModules.emplace_back(std::move(module));
 
-    // create our output module
-    this->createLLVMModule();
+    auto *options = new CodeGeneratorOptions(&this->llvmContext, this->outputDirectory);
+    this->codeGenerator = new CodeGenerator(options);
 }
 
 void Runner::run() {
     // insert all function declarations into new module previous to code generation
-    for (auto nameFunctionPair : this->allFunctions) {
-        this->generatedModule->getOrInsertFunction(nameFunctionPair.first, nameFunctionPair.second->getFunctionType());
+    for (llvm::Function &function : *this->functions) {
+        this->codeGenerator->addFunction(&function);
     }
 
     auto *executor = klee::ADDInterpreter::create(this->llvmContext);
     klee::Interpreter::ModuleOptions moduleOptions(
             KLEE_LIB_PATH,
-            this->allFunctions.begin()->first,
+            this->functions->front().getName(),
             "64_Debug+Asserts",
             false,
             false,
@@ -87,38 +86,31 @@ void Runner::run() {
     );
     llvm::Module *finalModule = executor->setModule(this->loadedModules, moduleOptions);
 
-    for (auto nameFunctionPair : this->allFunctions) {
-        llvm::Function *function = finalModule->getFunction(nameFunctionPair.first);
-        if (function->isDeclaration()) {
+    for (llvm::Function &function : *this->functions) {
+        if (function.isDeclaration()) {
             continue;
         }
 
-        std::cout << "evaluating function \"" + nameFunctionPair.first.str() + "\" \n" << std::endl;
+        llvm::StringRef functionName = function.getName();
 
-        klee::FunctionEvaluation functionEvaluation(function);
+        std::cout << "evaluating function \"" + functionName.str() + "\" \n" << std::endl;
+
+        klee::FunctionEvaluation functionEvaluation(&function);
         executor->runFunction(&functionEvaluation);
 
-        this->outputPathResults(functionEvaluation, nameFunctionPair.first);
+        this->outputPathResults(&functionEvaluation, functionName);
 
-        this->callJavaLib(nameFunctionPair.first);
+        this->callJavaLib(functionName);
 
         nlohmann::json addJson;
-        this->readADDs(&addJson, nameFunctionPair.first);
+        this->readADDs(&addJson, functionName);
 
-        this->generateLLVMCode(functionEvaluation, &addJson);
+        this->generateCode(&functionEvaluation, &addJson);
     }
 
     delete executor;
 
-    std::error_code error;
-    llvm::raw_fd_ostream moduleOutputFile(
-            this->outputDirectory + "/generated-llvm.bc",
-            error
-    );
-
-    llvm::WriteBitcodeToFile(*this->generatedModule, moduleOutputFile);
-
-    moduleOutputFile.flush();
+    this->codeGenerator->writeModule();
 }
 
 void Runner::parseArguments() {
@@ -131,10 +123,10 @@ void Runner::prepareFiles() {
     mkdir(this->outputDirectory.c_str(), 0777);
 }
 
-void Runner::outputPathResults(klee::FunctionEvaluation &functionEvaluation, llvm::StringRef functionName) {
+void Runner::outputPathResults(klee::FunctionEvaluation *functionEvaluation, llvm::StringRef functionName) {
     JsonPrinter printer;
 
-    for (auto *path : functionEvaluation.getPathList()) {
+    for (auto *path : functionEvaluation->getPathList()) {
         printer.print(path);
     }
 
@@ -170,96 +162,6 @@ void Runner::readADDs(nlohmann::json *addJson, llvm::StringRef functionName) {
     addsInputFile >> *addJson;
 }
 
-
-void Runner::createLLVMModule() {
-    this->generatedModule = new llvm::Module("generated-llvm", this->llvmContext);
-}
-
-
-void Runner::generateLLVMCode(klee::FunctionEvaluation &functionEvaluation, nlohmann::json *addJson) {
-    llvm::FunctionCallee functionCallee = this->generatedModule->getOrInsertFunction(functionEvaluation.getFunction()->getName(),
-                                                                     functionEvaluation.getFunction()->getFunctionType());
-
-    auto *function = llvm::cast<llvm::Function>(functionCallee.getCallee());
-    function->setCallingConv(llvm::CallingConv::C);
-
-    ValueMap cutpointBlockMap;
-    ValueMap variableMap;
-
-    llvm::BasicBlock *entry = llvm::BasicBlock::Create(this->llvmContext, "main", function);
-
-    for (nlohmann::json add : *addJson) {
-        std::string cutpointName = add["start-cutpoint"];
-
-        llvm::BasicBlock *block = llvm::BasicBlock::Create(this->llvmContext, cutpointName, function);
-        cutpointBlockMap.store(cutpointName, block);
-    }
-
-    llvm::IRBuilder<> builder(entry);
-    this->generateLLVMCodePreparation(entry, &builder, &functionEvaluation, function, &variableMap, &cutpointBlockMap);
-
-    llvm::BasicBlock *targetCutpoint = llvm::BasicBlock::Create(this->llvmContext, "end", function);
-    cutpointBlockMap["end"] = targetCutpoint;
-
-    llvm::IRBuilder<> endBlockBuilder(targetCutpoint);
-    llvm::Value *functionResult = endBlockBuilder.CreateLoad(variableMap[functionEvaluation.getReturnValueName()]);
-    endBlockBuilder.CreateRet(functionResult);
-
-    for (nlohmann::json add : *addJson) {
-        std::string cutpointName = add["start-cutpoint"];
-        nlohmann::json decisionDiagram = add["decision-diagram"];
-
-        llvm::BasicBlock *block = cutpointBlockMap[cutpointName];
-        llvm::IRBuilder<> addBlockBuilder(block);
-
-        ValueMap expressionCache;
-
-        ADDCodeGeneratorOptions generatorOptions(
-                &this->llvmContext,
-                this->generatedModule,
-                function,
-                block,
-                &addBlockBuilder,
-                &cutpointBlockMap,
-                &variableMap,
-                &expressionCache
-                );
-        ADDCodeGenerator generator(&add, &generatorOptions);
-        generator.generate();
-    }
-
-    if (!this->verifyModule(*this->generatedModule)) {
-        std::cout << "verify module failed" << std::endl;
-        exit(EXIT_FAILURE);
-    }
-}
-
-void Runner::generateLLVMCodePreparation(llvm::BasicBlock *block,
-                                         llvm::IRBuilder<> *blockBuilder,
-                                         klee::FunctionEvaluation *functionEvaluation,
-                                         llvm::Function *function,
-                                         std::map<std::string, llvm::Value *> *variableMap,
-                                         std::map<std::string, llvm::BasicBlock *> *cutpointBlockMap) {
-    int i = 0;
-    for (llvm::Value &value : function->args()) {
-        (*variableMap)["arg" + std::to_string(i++)] = &value;
-    }
-
-    for (std::pair<std::string, llvm::Type *> variableTypePair : functionEvaluation->getVariableTypeMap()) {
-        (*variableMap)[variableTypePair.first] = blockBuilder->CreateAlloca(variableTypePair.second);
-    }
-
-    llvm::BasicBlock &originalFrontBasicBlock = functionEvaluation->getFunction()->front();
-    std::string startCutpointName = originalFrontBasicBlock.getName();
-    if (startCutpointName.empty()) {
-        startCutpointName = std::to_string((long)&originalFrontBasicBlock);
-    }
-    blockBuilder->CreateBr((*cutpointBlockMap)[startCutpointName]);
-}
-
-bool Runner::verifyModule(llvm::Module &module) {
-    std::error_code error;
-    llvm::raw_fd_ostream errorStream(this->outputDirectory + "/verify.txt", error);
-    bool failed = llvm::verifyModule(module, &errorStream);
-    return !failed;
+void Runner::generateCode(klee::FunctionEvaluation *functionEvaluation, nlohmann::json *addJson) {
+    this->codeGenerator->generateFunction(functionEvaluation, addJson);
 }

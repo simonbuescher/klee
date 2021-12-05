@@ -17,19 +17,22 @@ llvm::Value *ExpressionTreeCodeGenerator::generate() {
     }
 
     llvm::Value *result;
+    bool cacheResult = true;
     if (this->isInnerNode()) {
         result = this->generateForInnerNode();
     } else if (this->isFunctionCall()) {
         result = this->generateForFunctionCall();
     } else {
-        result = this->generateForLeafNode();
+        result = this->generateForLeafNode(&cacheResult);
     }
 
-    cache->store(cacheKey, result);
+    if (cacheResult) {
+        cache->store(cacheKey, result);
+    }
     return result;
 }
 
-llvm::Value *ExpressionTreeCodeGenerator::generateForLeafNode() const {
+llvm::Value *ExpressionTreeCodeGenerator::generateForLeafNode(bool *cacheResult) const {
     ValueMap *variables = this->options->getVariables();
     llvm::IRBuilder<> *builder = this->options->getBuilder();
 
@@ -44,6 +47,7 @@ llvm::Value *ExpressionTreeCodeGenerator::generateForLeafNode() const {
             return builder->CreateLoad(variableValue);
         }
     } else {
+        *cacheResult = false;
         uint64_t longValue = std::stoul(value);
         return llvm::ConstantInt::get(llvm::Type::getInt64Ty(*this->options->getContext()), longValue, true);
     }
@@ -63,9 +67,8 @@ llvm::Value *ExpressionTreeCodeGenerator::generateForFunctionCall() {
         arguments.push_back(argumentResult);
     }
 
-    llvm::Function *sourceFunction = this->allFunctions[functionName];
-    llvm::FunctionCallee calledFunction = module->getOrInsertFunction(functionName, sourceFunction->getFunctionType());
-    return builder->CreateCall(calledFunction, arguments);
+    llvm::Function *targetFunction = module->getFunction(functionName);
+    return builder->CreateCall(targetFunction, arguments);
 }
 
 llvm::Value *ExpressionTreeCodeGenerator::generateForInnerNode() {

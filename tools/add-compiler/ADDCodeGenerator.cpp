@@ -8,6 +8,7 @@
 
 
 void ADDCodeGenerator::generate() {
+    std::string tree = this->add->dump();
     if (this->isCondition()) {
         this->generateForCondition();
     } else {
@@ -86,8 +87,8 @@ ADDCodeGenerator::generateForChildADD(nlohmann::json *childADD, const std::strin
     llvm::BasicBlock *childBlock = llvm::BasicBlock::Create(*context, block->getName() + "." + blockNameAppendix,
                                                             function);
     llvm::IRBuilder<> childBuilder(childBlock);
-    ValueMap *childCache(this->options->getCache());
-    ADDCodeGeneratorOptions *childOptions = this->createADDGeneratorOptions(childBlock, &childBuilder, childCache);
+    ValueMap childCache(*this->options->getCache());
+    ADDCodeGeneratorOptions *childOptions = this->createADDGeneratorOptions(childBlock, &childBuilder, &childCache);
 
     ADDCodeGenerator generator(childADD, childOptions);
     generator.generate();

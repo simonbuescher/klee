@@ -71,7 +71,7 @@ private:
 
     llvm::Value *generateForFunctionCall();
 
-    llvm::Value *generateForLeafNode() const;
+    llvm::Value *generateForLeafNode(bool *cacheResult) const;
 
     nlohmann::json getTreeVariable(const std::string &key) { return (*this->expressionTree)[key]; };
 };
