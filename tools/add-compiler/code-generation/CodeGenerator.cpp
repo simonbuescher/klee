@@ -67,6 +67,8 @@ void CodeGenerator::writeModule() {
 }
 
 void CodeGenerator::storeArguments(llvm::Function *function, ValueMap *variables) {
+    // argument values will never change during the function.
+    // store the references to them.
     int i = 0;
     for (llvm::Value &value : function->args()) {
         variables->store("arg" + std::to_string(i++), &value);
@@ -75,6 +77,7 @@ void CodeGenerator::storeArguments(llvm::Function *function, ValueMap *variables
 
 
 void CodeGenerator::createAllocas(klee::FunctionEvaluation *functionEvaluation, llvm::IRBuilder<> *builder, ValueMap *variables) {
+    // for each symbolic variable we have, allocate a new variable and store the resulting pointer.
     for (const auto &variableTypePair : functionEvaluation->getVariableTypeMap()) {
         llvm::Value *allocaResult = builder->CreateAlloca(variableTypePair.second);
         variables->store(variableTypePair.first, allocaResult);
@@ -93,6 +96,7 @@ void CodeGenerator::createBranchToEntryBlock(llvm::Function *sourceFunction, llv
 }
 
 void CodeGenerator::createADDEntryBlocks(nlohmann::json *adds, llvm::Function *function, ValueMap *cutpointBlocks) {
+    // create the BBs for the start of every ADD, so we can create branches to them
     for (nlohmann::json add : *adds) {
         std::string cutpointName = add["start-cutpoint"];
 

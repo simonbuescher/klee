@@ -8,8 +8,7 @@
 
 
 void ADDCodeGenerator::generate() {
-    std::string tree = this->add->dump();
-    if (this->isCondition()) {
+    if (this->rootNodeIsCondition()) {
         this->generateForCondition();
     } else {
         this->generateForParallelAssignment();
@@ -24,34 +23,40 @@ void ADDCodeGenerator::generateForParallelAssignment() {
     std::string targetCutpointName = this->getADDVariable("target-cutpoint");
     nlohmann::json parallelAssignment = this->getADDVariable("parallel-assignments");
 
+    // create calculations for all right hand sides of the assignments, but do not store the results
     ValueMap results;
-    // calculations for variables
     for (nlohmann::json assignment : parallelAssignment) {
         std::string targetVariableName = assignment["variable"];
         nlohmann::json expressionJson = assignment["expression"];
 
         if (targetVariableName == expressionJson) {
-            // skip self assignments
+            // skip self assignments (var1 = var1)
             continue;
         }
 
+        // generate code for assignment
         ExpressionTreeCodeGeneratorOptions *generatorOptions = this->createExpressionGeneratorOptions();
         ExpressionTreeCodeGenerator generator(&expressionJson, generatorOptions);
         llvm::Value *result = generator.generate();
         delete generatorOptions;
 
+        // target variable needs to be an symbolic pointer variable, so we can store the results there.
+        // if its a concrete value, something went wrong.
         llvm::Type *expectedPointerType = variables->get(targetVariableName)->getType();
         if (!expectedPointerType->isPointerTy()) {
-            assert(false && "target variable is not pointer, can not create store instruction to concrete type");
+            std::cout << "Target variable " << targetVariableName << " is not a symbolic variable, can not store results." << std::endl;
+            exit(EXIT_FAILURE);
         }
 
         results.store(targetVariableName, result);
     }
 
+    // create the store instructions that store the new results in the symbolic variables
     for (const auto& resultPair : results) {
         builder->CreateStore(resultPair.second, variables->get(resultPair.first));
     }
 
+    // create the branch to the next ADD / the end of the function.
     std::string cutpointName = cutpointBlocks->contains(targetCutpointName) ? targetCutpointName : "end";
     auto *targetCutpoint = llvm::cast<llvm::BasicBlock>(cutpointBlocks->get(cutpointName));
     builder->CreateBr(targetCutpoint);
@@ -64,13 +69,14 @@ void ADDCodeGenerator::generateForCondition() {
     nlohmann::json trueChild = this->getADDVariable("true-child");
     nlohmann::json falseChild = this->getADDVariable("false-child");
 
-    // create comparison
+    // generate code for the condition
     ExpressionTreeCodeGeneratorOptions *conditionOptions = this->createExpressionGeneratorOptions();
     ExpressionTreeCodeGenerator conditionGenerator(&condition, conditionOptions);
     llvm::Value *compareResult = conditionGenerator.generate();
     delete conditionOptions;
 
-    // generate code for children
+    // generate code for left and right children.
+    // these are ADDs themselves, and code generation can be handled recursively.
     llvm::BasicBlock *trueBlock = this->generateForChildADD(&trueChild, "then");
     llvm::BasicBlock *falseBlock = this->generateForChildADD(&falseChild, "else");
 
@@ -84,9 +90,12 @@ ADDCodeGenerator::generateForChildADD(nlohmann::json *childADD, const std::strin
     llvm::Function *function = this->options->getFunction();
     llvm::BasicBlock *block = this->options->getBlock();
 
+    // create a new source BB for child.
     llvm::BasicBlock *childBlock = llvm::BasicBlock::Create(*context, block->getName() + "." + blockNameAppendix,
                                                             function);
     llvm::IRBuilder<> childBuilder(childBlock);
+
+    // create a copy of the current expression cache as the generation forks at this point
     ValueMap childCache(*this->options->getCache());
     ADDCodeGeneratorOptions *childOptions = this->createADDGeneratorOptions(childBlock, &childBuilder, &childCache);
 
@@ -125,7 +134,7 @@ ADDCodeGeneratorOptions *ADDCodeGenerator::createADDGeneratorOptions(
     );
 }
 
-bool ADDCodeGenerator::isCondition() {
+bool ADDCodeGenerator::rootNodeIsCondition() {
     return this->add->contains("condition");
 }
 

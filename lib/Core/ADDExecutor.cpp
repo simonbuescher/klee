@@ -102,13 +102,13 @@ namespace klee {
                                          const Interpreter::ModuleOptions &opts) {
         this->kleeModule = std::unique_ptr<KModule>(new KModule());
 
-        llvm::SmallString<128> libPath(opts.LibraryDir);
+        /*llvm::SmallString<128> libPath(opts.LibraryDir);
         llvm::sys::path::append(libPath, "libkleeRuntimeIntrinsic" + opts.OptSuffix + ".bca");
 
         std::string error;
         if (!klee::loadFile(libPath.c_str(), modules[0]->getContext(), modules, error)) {
             klee_error("Could not load KLEE intrinsic file %s", libPath.c_str());
-        }
+        }*/
 
         while (this->kleeModule->link(modules, opts.EntryPoint)) {
             this->kleeModule->instrument(opts);

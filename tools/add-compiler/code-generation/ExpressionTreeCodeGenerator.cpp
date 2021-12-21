@@ -49,7 +49,7 @@ llvm::Value *ExpressionTreeCodeGenerator::generateForLeafNode(bool *cacheResult)
     } else {
         *cacheResult = false;
         uint64_t longValue = std::stoul(value);
-        return llvm::ConstantInt::get(llvm::Type::getInt64Ty(*this->options->getContext()), longValue, true);
+        return llvm::ConstantInt::get(llvm::Type::getInt64Ty(*this->options->getContext()), longValue, false);
     }
 }
 
@@ -84,6 +84,8 @@ llvm::Value *ExpressionTreeCodeGenerator::generateForInnerNode() {
     ExpressionTreeCodeGenerator rightGenerator(&rightChild, this->options);
     llvm::Value *rightResult = rightGenerator.generate();
 
+    // all constants we create are unsigned 64 bit integers.
+    // change them to the corresponding type if needed.
     if (leftResult->getType() != rightResult->getType()) {
         if (llvm::isa<llvm::Constant>(leftResult)) {
             leftResult->mutateType(rightResult->getType());
@@ -100,12 +102,18 @@ llvm::Value *ExpressionTreeCodeGenerator::generateForInnerNode() {
         return builder->CreateMul(leftResult, rightResult);
     } else if (expressionOperator == "/") {
         return builder->CreateSDiv(leftResult, rightResult);
+    } else if (expressionOperator == "u/") {
+        return builder->CreateUDiv(leftResult, rightResult);
     } else if (expressionOperator == "%") {
         return builder->CreateSRem(leftResult, rightResult);
+    } else if (expressionOperator == "u%") {
+        return builder->CreateURem(leftResult, rightResult);
     } else if (expressionOperator == "<<") {
         return builder->CreateShl(leftResult, rightResult);
     } else if (expressionOperator == ">>") {
         return builder->CreateAShr(leftResult, rightResult);
+    } else if (expressionOperator == "u>>") {
+        return builder->CreateLShr(leftResult, rightResult);
     } else if (expressionOperator == "&") {
         return builder->CreateAnd(leftResult, rightResult);
     } else if (expressionOperator == "|") {
@@ -114,15 +122,23 @@ llvm::Value *ExpressionTreeCodeGenerator::generateForInnerNode() {
         return builder->CreateICmpEQ(leftResult, rightResult);
     } else if (expressionOperator == "<") {
         return builder->CreateICmpSLT(leftResult, rightResult);
+    } else if (expressionOperator == "u<") {
+        return builder->CreateICmpULT(leftResult, rightResult);
     } else if (expressionOperator == "<=") {
         return builder->CreateICmpSLE(leftResult, rightResult);
+    } else if (expressionOperator == "u<=") {
+        return builder->CreateICmpULE(leftResult, rightResult);
     } else if (expressionOperator == ">") {
         return builder->CreateICmpSGT(leftResult, rightResult);
+    } else if (expressionOperator == "u>") {
+        return builder->CreateICmpUGT(leftResult, rightResult);
     } else if (expressionOperator == ">=") {
         return builder->CreateICmpSGE(leftResult, rightResult);
+    } else if (expressionOperator == "u>=") {
+        return builder->CreateICmpUGE(leftResult, rightResult);
     }
 
-    std::cout << "unknown json value: " << this->expressionTree->dump(4) << std::endl;
+    std::cout << "unknown json value during expression tree generation: " << this->expressionTree->dump(4) << std::endl;
     exit(EXIT_FAILURE);
 }
 

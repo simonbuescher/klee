@@ -15,10 +15,7 @@
 
 #include <klee/Core/Interpreter.h>
 #include <klee/Core/FunctionEvaluation.h>
-#include "CodeGenerator.h"
-
-
-#define KLEE_LIB_PATH "/home/simon/Libraries/klee/build/runtime/lib"
+#include "code-generation/CodeGenerator.h"
 
 
 class Runner {
@@ -44,11 +41,11 @@ public:
 
 private:
     void parseArguments();
-    void prepareFiles();
+    void prepareRunDirectory();
 
-    void outputPathResults(klee::FunctionEvaluation *functionEvaluation, llvm::StringRef functionName);
+    void writeSymbolicExecutionResultsToJson(klee::FunctionEvaluation *functionEvaluation, llvm::StringRef functionName);
     void callJavaLib(llvm::StringRef functionName);
-    void readADDs(nlohmann::json *addJson, llvm::StringRef functionName);
+    void readADDsFromJson(nlohmann::json *addJson, llvm::StringRef functionName);
     void generateCode(klee::FunctionEvaluation *functionEvaluation, nlohmann::json *addJson);
 };
 

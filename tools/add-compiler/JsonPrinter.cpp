@@ -5,6 +5,7 @@
 #include <fstream>
 
 #include <nlohmann/json.hpp>
+#include <iostream>
 
 #include "JsonPrinter.h"
 
@@ -16,6 +17,7 @@ void JsonPrinter::print(klee::Path *path) {
     if (constraints.empty()) {
         conditionString = "true";
     } else {
+        // conditions are split in the resulting constraint set, join them together using AND
         auto condition = *constraints.begin();
         for (auto constraintIt = constraints.begin() + 1; constraintIt != constraints.end(); constraintIt++) {
             condition = klee::AndExpr::create(condition, *constraintIt);
@@ -38,11 +40,15 @@ void JsonPrinter::print(klee::Path *path) {
         };
     }
 
+    // get the name of the starting cutpoint.
+    // if it does not have a name, use its address
     std::string startCutpointName = path->front()->getName();
     if (startCutpointName.empty()) {
         startCutpointName = std::to_string((long)path->front());
     }
 
+    // get the name of the target cutpoint.
+    // if a path is just 1 block long, we need to branch to the ending block at the end of code generation, so default to that.
     std::string targetCutpointName = "end";
     if (path->size() > 1) {
         targetCutpointName = path->back()->getName();
@@ -64,9 +70,13 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
         case klee::Expr::Kind::Constant: {
             auto *constExpr = llvm::dyn_cast<klee::ConstantExpr>(expression);
 
+            // all values in LLVM IR are unsigned 64 bit integers.
+            // get the whole value without loosing information by passing the maximum possible limit.
             uint64_t value = constExpr->getLimitedValue(UINT64_MAX);
 
+
             if (expression->getWidth() == 1) {
+                // 1 bit wide numbers are boolean values and need to be passed to ADD generation accordingly
                 *resultString = value == 0 ? "false" : "true";
             } else {
                 *resultString = std::to_string(value);
@@ -85,19 +95,28 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
             printBinaryExpression("*", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::SDiv:
-        case klee::Expr::Kind::UDiv: {
+        case klee::Expr::Kind::SDiv: {
             printBinaryExpression("/", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::SRem:
-        case klee::Expr::Kind::URem: {
+        case klee::Expr::Kind::UDiv: {
+            printBinaryExpression("u/", expression, resultString);
+            break;
+        }
+        case klee::Expr::Kind::SRem:{
             printBinaryExpression("%", expression, resultString);
+            break;
+        }
+        case klee::Expr::Kind::URem: {
+            printBinaryExpression("u%", expression, resultString);
             break;
         }
         case klee::Expr::Kind::Eq:{
             auto *binaryExpression = llvm::dyn_cast<klee::BinaryExpr>(expression);
+
             if (binaryExpression->left->isZero() && binaryExpression->left->getWidth() == 1) {
+                // !some_boolean_value is represented as 0 == some_boolean_value in LLVM IR.
+                // write it as a normal negation for ADD generation.
                 std::string rightResult;
                 printExpression(binaryExpression->right, &rightResult);
 
@@ -108,24 +127,36 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
             }
             break;
         }
-        case klee::Expr::Kind::Slt:
-        case klee::Expr::Kind::Ult: {
+        case klee::Expr::Kind::Slt: {
             printBinaryExpression("<", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::Sle:
-        case klee::Expr::Kind::Ule: {
+        case klee::Expr::Kind::Ult: {
+            printBinaryExpression("u<", expression, resultString);
+            break;
+        }
+        case klee::Expr::Kind::Sle:{
             printBinaryExpression("<=", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::Sgt:
-        case klee::Expr::Kind::Ugt: {
+        case klee::Expr::Kind::Ule: {
+            printBinaryExpression("u<=", expression, resultString);
+            break;
+        }
+        case klee::Expr::Kind::Sgt: {
             printBinaryExpression(">", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::Sge:
-        case klee::Expr::Kind::Uge: {
+        case klee::Expr::Kind::Ugt: {
+            printBinaryExpression("u>", expression, resultString);
+            break;
+        }
+        case klee::Expr::Kind::Sge: {
             printBinaryExpression(">=", expression, resultString);
+            break;
+        }
+        case klee::Expr::Kind::Uge: {
+            printBinaryExpression("u>=", expression, resultString);
             break;
         }
         case klee::Expr::Kind::And: {
@@ -136,9 +167,12 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
             printBinaryExpression("|", expression, resultString);
             break;
         }
-        case klee::Expr::Kind::LShr:
-        case klee::Expr::Kind::AShr: {
+        case klee::Expr::Kind::LShr: {
             printBinaryExpression(">>", expression, resultString);
+            break;
+        }
+        case klee::Expr::Kind::AShr: {
+            printBinaryExpression("u>>", expression, resultString);
             break;
         }
         case klee::Expr::Kind::Shl: {
@@ -146,11 +180,16 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
             break;
         }
         case klee::Expr::Kind::Concat: {
+            // in the current state of the implementation, all concat expressions represent reads from memory of a single variable.
+            // these represent symbolic variables.
+            // we can just look at the right child, which should be a read expression, to get the variable name.
             printExpression(expression->getKid(1), resultString);
             break;
         }
         case klee::Expr::Kind::Read: {
             auto *readExpression = llvm::dyn_cast<klee::ReadExpr>(expression);
+
+            // read the name of the variable out of the read expression
             std::string variableName = readExpression->updates.root->getName();
             escapeVariableName(&variableName);
 
@@ -160,6 +199,8 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
         }
         case klee::Expr::Kind::CastKindFirst:
         case klee::Expr::Kind::CastKindLast: {
+            // casts can be ignored in our json representation as they just store type information that we dont need.
+            // just print the contained expression.
             printExpression(expression->getKid(0), resultString);
             break;
         }
@@ -184,7 +225,8 @@ void JsonPrinter::printExpression(klee::ref<klee::Expr> expression, std::string 
             break;
         }
         default: {
-            assert(false && "not implemented print case");
+            std::cout << "Trying to print an expression for which the print is not implemented." << std::endl;
+            exit(EXIT_FAILURE);
         }
     }
 }
@@ -202,6 +244,8 @@ void JsonPrinter::printBinaryExpression(std::string op, klee::ref<klee::Expr> ex
 }
 
 void JsonPrinter::escapeVariableName(std::string *variableName) {
+    // variables are usually called %1, %2 and so forth.
+    // escape this to be named var1, var2, ...
     size_t start_pos = variableName->find('%');
     if(start_pos != std::string::npos) {
         variableName->replace(start_pos, 1, "var");

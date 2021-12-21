@@ -1,7 +1,3 @@
-//
-// Created by simon on 29.08.21.
-//
-
 #include <iostream>
 #include <fstream>
 #include <sys/stat.h>
@@ -35,7 +31,7 @@ Runner::~Runner() {
 
 void Runner::init() {
     this->parseArguments();
-    this->prepareFiles();
+    this->prepareRunDirectory();
 
     llvm::InitializeNativeTarget();
 
@@ -70,14 +66,16 @@ void Runner::init() {
 }
 
 void Runner::run() {
-    // insert all function declarations into new module previous to code generation
+    // insert all function declarations into new module previous to execution and code generation.
+    // this ensures that all references can be found if a function is called from another function
     for (llvm::Function &function : *this->functions) {
         this->codeGenerator->addFunction(&function);
     }
 
+    // create the interpreter and set the module in it
     auto *executor = klee::ADDInterpreter::create(this->llvmContext);
     klee::Interpreter::ModuleOptions moduleOptions(
-            KLEE_LIB_PATH,
+            "",
             this->functions->front().getName(),
             "64_Debug+Asserts",
             false,
@@ -92,18 +90,21 @@ void Runner::run() {
         }
 
         llvm::StringRef functionName = function.getName();
+        std::cout << "[COMPILING] " << functionName.str() << std::endl;
 
-        std::cout << "evaluating function \"" + functionName.str() + "\" \n" << std::endl;
-
+        // creating the object that will hold the symbolic execution results.
+        // this also splits the cfg into acyclic subgraphs
         klee::FunctionEvaluation functionEvaluation(&function);
+
         executor->runFunction(&functionEvaluation);
 
-        this->outputPathResults(&functionEvaluation, functionName);
+        //
+        this->writeSymbolicExecutionResultsToJson(&functionEvaluation, functionName);
 
         this->callJavaLib(functionName);
 
         nlohmann::json addJson;
-        this->readADDs(&addJson, functionName);
+        this->readADDsFromJson(&addJson, functionName);
 
         this->generateCode(&functionEvaluation, &addJson);
     }
@@ -114,16 +115,20 @@ void Runner::run() {
 }
 
 void Runner::parseArguments() {
-    assert(argc == 2 && "invalid arguments");
+    if (this->argc != 2) {
+        std::cout << "Invalid arguments, call the ADD-Compiler like this:" << std::endl;
+        std::cout << "./add-compiler <some/llvm/ir/file>.bc" << std::endl;
+        exit(EXIT_FAILURE);
+    }
 
     this->inputFile = this->argv[1];
 }
 
-void Runner::prepareFiles() {
+void Runner::prepareRunDirectory() {
     mkdir(this->outputDirectory.c_str(), 0777);
 }
 
-void Runner::outputPathResults(klee::FunctionEvaluation *functionEvaluation, llvm::StringRef functionName) {
+void Runner::writeSymbolicExecutionResultsToJson(klee::FunctionEvaluation *functionEvaluation, llvm::StringRef functionName) {
     JsonPrinter printer;
 
     for (auto *path : functionEvaluation->getPathList()) {
@@ -134,7 +139,7 @@ void Runner::outputPathResults(klee::FunctionEvaluation *functionEvaluation, llv
 }
 
 void Runner::callJavaLib(llvm::StringRef functionName) {
-    char command[128];
+    char command[256]; // todo fix this so it doesnt crash if the command gets longer than 256 chars
     sprintf(command, "java -jar path-to-add.jar -i %s/%s.symex.json -o %s/%s.adds.json",
             this->outputDirectory.c_str(), functionName.str().c_str(), this->outputDirectory.c_str(), functionName.str().c_str());
 
@@ -142,12 +147,11 @@ void Runner::callJavaLib(llvm::StringRef functionName) {
     commandOutput = popen(command, "r");
 
     if (commandOutput == nullptr) {
-        std::cout << "error while calling java" << std::endl;
+        std::cout << "ERROR while trying to call the java program" << std::endl;
         exit(EXIT_FAILURE);
     }
 
-    std::cout << "java output:" << std::endl;
-
+    // print out the java output, todo fix fixed output line length
     char outputLine[1024];
     char *success;
     do {
@@ -156,7 +160,7 @@ void Runner::callJavaLib(llvm::StringRef functionName) {
     } while (success != nullptr);
 }
 
-void Runner::readADDs(nlohmann::json *addJson, llvm::StringRef functionName) {
+void Runner::readADDsFromJson(nlohmann::json *addJson, llvm::StringRef functionName) {
     std::ifstream addsInputFile(this->outputDirectory + "/" + functionName.str() + ".adds.json");
 
     addsInputFile >> *addJson;

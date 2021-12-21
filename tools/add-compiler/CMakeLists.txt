@@ -1,5 +1,5 @@
 #
-add_executable(add-compiler main.cpp Runner.cpp JsonPrinter.cpp ADDCodeGenerator.cpp ADDCodeGenerator.h ExpressionTreeCodeGenerator.cpp ExpressionTreeCodeGenerator.h ValueMap.cpp ValueMap.h CodeGenerator.cpp CodeGenerator.h)
+add_executable(add-compiler main.cpp Runner.cpp JsonPrinter.cpp code-generation/ADDCodeGenerator.cpp code-generation/ADDCodeGenerator.h code-generation/ExpressionTreeCodeGenerator.cpp code-generation/ExpressionTreeCodeGenerator.h code-generation/ValueMap.cpp code-generation/ValueMap.h code-generation/CodeGenerator.cpp code-generation/CodeGenerator.h)
 
 set(KLEE_LIBS
     kleeCore

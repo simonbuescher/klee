@@ -78,7 +78,7 @@ public:
     void generate();
 
 private:
-    bool isCondition();
+    bool rootNodeIsCondition();
 
     void generateForCondition();
 
